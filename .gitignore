@@ -1,0 +1,36 @@
+# --- Segredos ---
+.env
+*.env
+!.env.example
+
+# --- Dados de terceiros clonados (nunca commitar) ---
+data/raw/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Node / frontend ---
+node_modules/
+dist/
+build/
+.next/
+
+# --- Docker / Postgres volume local ---
+pgdata/
+
+# --- Editores / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
