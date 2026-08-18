@@ -1,0 +1,30 @@
+# Fixture: regra Sigma sem `logsource.product`. Existem no repositório
+# upstream (regras organizadas por categoria), e nesses casos a plataforma só
+# pode vir do caminho do arquivo — `rules/linux/...`.
+title: Suspicious Shell History Deletion
+id: 4b0c8a5e-1f2d-4a7b-9c3e-2d5f8a1b6c04
+status: test
+description: Detects deletion or truncation of shell history files, a common step to hide command-line activity after compromise.
+references:
+    - https://attack.mitre.org/techniques/T1070/003/
+author: Fixture Author
+date: 2024-01-15
+tags:
+    - attack.defense_evasion
+    - attack.t1070.003
+logsource:
+    category: process_creation
+detection:
+    selection:
+        CommandLine|contains:
+            - '.bash_history'
+            - '.zsh_history'
+    keywords:
+        CommandLine|contains:
+            - 'rm '
+            - 'truncate '
+            - '> '
+    condition: all of them
+falsepositives:
+    - Administradores limpando histórico durante manutenção rotineira
+level: medium

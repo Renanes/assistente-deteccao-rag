@@ -1,0 +1,8 @@
+# Fixture: YAML do repositório ESCU que não é uma detecção (não tem `search`).
+# Sem essa checagem, arquivos de apoio virariam "regras" com query vazia.
+name: Ransomware
+id: 2f0b1b7d-7a6f-4a3a-9f11-1e5c1a2b3c4d
+description: Analytic story agrupando detecções relacionadas a ransomware.
+narrative: Ransomware é uma família de malware que cifra dados da vítima.
+references:
+    - https://attack.mitre.org/techniques/T1486/

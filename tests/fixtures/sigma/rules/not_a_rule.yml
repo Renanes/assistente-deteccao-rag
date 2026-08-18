@@ -1,0 +1,8 @@
+# Fixture: YAML válido que não é uma regra Sigma (sem `title`/`id`).
+# O repositório upstream tem arquivos assim espalhados pela árvore, e o parser
+# precisa descartá-los em silêncio em vez de tentar normalizá-los.
+name: sigma-config
+order: 20
+backends:
+    - splunk
+    - elasticsearch

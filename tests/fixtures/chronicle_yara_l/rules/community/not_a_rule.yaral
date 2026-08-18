@@ -1,0 +1,10 @@
+/*
+ * Fixture: arquivo na árvore de regras sem cabeçalho `rule <nome>`.
+ * O repositório upstream guarda listas de referência e arquivos de apoio ao
+ * lado das regras; o parser precisa descartá-los.
+ */
+
+// Lista de referência: ferramentas de hacking conhecidas.
+mimikatz
+psexec
+bloodhound

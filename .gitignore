@@ -6,6 +6,10 @@
 # --- Dados de terceiros clonados (nunca commitar) ---
 data/raw/
 
+# --- Corpus normalizado: artefato derivado de data/raw/, reproduzível com
+#     `python -m src.ingestion.run`. Não é fonte, não vai para o repo. ---
+data/normalized/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

@@ -1,0 +1,23 @@
+# --- Núcleo: schema e configuração ---
+pydantic==2.9.2
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+
+# --- Ingestão (as 3 fontes são YAML) ---
+PyYAML==6.0.2
+
+# --- API (Fase 7) ---
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# --- Banco vetorial (Fase 3) ---
+psycopg[binary]==3.2.3
+pgvector==0.3.6
+
+# --- Provedores de LLM / embedding (Fase 3) ---
+anthropic==0.40.0
+openai==1.57.0
+voyageai==0.3.2
+
+# --- Dev / testes ---
+pytest==8.3.4
