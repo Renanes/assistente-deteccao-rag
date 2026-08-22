@@ -1,7 +1,7 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 3 concluída — Fase 4 (Busca híbrida) é o próximo passo
+- Fase atual: Fase 4 concluída — Fase 5 (Pipeline RAG) é o próximo passo
 - Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
@@ -156,6 +156,46 @@
   `from openai import OpenAI` no pipeline RAG da Fase 5 passaria despercebido e
   o lock-in voltaria pela porta dos fundos.
 
+- **Filtro por metadado é rígido; só as outras duas pernas ranqueiam (Fase 4)**
+  — se o analista digitou `T1055`, uma regra de `T1027` está *errada*, não
+  "menos relevante". Tratar a técnica como mais um sinal de ranqueamento
+  (somando peso ao score) foi considerado e descartado: deixaria regra errada
+  no topo sempre que a similaridade semântica fosse alta o bastante, que é
+  exatamente o modo de falha que a fase existe para corrigir.
+- **Expansão de técnica ATT&CK nos dois sentidos** — pai casa as subtécnicas
+  (`T1055` → `T1055.%`) e subtécnica casa também o pai (`T1218.011` → `T1218`).
+  O primeiro sentido é o que resolve a limitação medida na Fase 3 (o full-text
+  tokeniza `T1055.001` como termo único, então `T1055` não o alcança); o
+  segundo existe porque quem pergunta por uma subtécnica aceita bem uma regra
+  marcada só com o pai. Há um teste garantindo que a lista de prefixos vazia
+  nunca vira `%` — um filtro que deixa passar o corpus inteiro é o erro
+  silencioso clássico aqui.
+- **Fusão por Reciprocal Rank Fusion (RRF), k = 60** — similaridade de cosseno
+  vive em [0, 1] e o `ts_rank` do Postgres é ilimitado e minúsculo; somar exige
+  normalizar, e toda normalização seria arbitrária (dividir pelo máximo do lote
+  faz a pontuação de um documento depender de quem mais veio no lote). O RRF
+  descarta as pontuações e usa só a posição. O k = 60 é o da publicação
+  original (Cormack et al., 2009) e ficou configurável para a Fase 6 poder
+  variar e medir.
+- **A perna de full-text recebe só termos de alto sinal, unidos por OR** — ela
+  existe para casar identificador exato (`4688`, `mimikatz`, `rundll32.exe`),
+  não para fazer trabalho semântico, que é do vetor. Unir por AND não devolveria
+  nada numa pergunta em linguagem natural. As stopwords **portuguesas** são
+  removidas em código porque a coluna `search_text` usa a configuração
+  `english` do Postgres, que só descarta as inglesas — sem isso, "como" e
+  "detectar" entrariam na consulta OR como termos legítimos.
+- **A interpretação da pergunta reusa `infer_platforms` da ingestão** — se
+  "sysmon" mapeia para `windows` ao classificar uma regra, precisa mapear igual
+  ao interpretar a pergunta. Duas tabelas de sinônimos divergiriam com o tempo
+  e o filtro passaria a errar em silêncio.
+- **Filtro que não casa nada é relaxado, com flag visível** — devolver lista
+  vazia deixa o analista sem resposta e sem saber por quê; relaxar em silêncio
+  é pior ainda, porque a Fase 5 afirmaria que existe regra para uma técnica que
+  o corpus não cobre. A busca refaz sem filtro e marca `relaxed_filters=True`.
+- **Pool de candidatos de 8× o `top_k` (mínimo 50) antes da fusão** — um
+  documento em 40º no vetor e 3º no full-text só pode ser resgatado pela fusão
+  se estiver nas duas listas. Pool curto transformaria o RRF em decoração.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -172,29 +212,38 @@
   mas não expõe `thinking` adaptativo nem `output_config.effort`, que são o
   caminho recomendado nos modelos atuais. Se a Fase 5 for usar esses recursos,
   atualizar o pin antes.
-- **Full-text não casa técnica-pai com subtécnica.** Verificado no banco:
-  `to_tsvector('english', ...)` tokeniza `T1213.003` como um termo único, então
-  uma busca por `T1213` **não** o recupera (16 regras pela coluna de metadado
-  contra 10 pelo full-text; em `T1055`, 79 contra 58). Não é defeito da Fase 3:
-  é a razão de `mitre_techniques` ser uma coluna `TEXT[]` indexada. A Fase 4
-  precisa expandir o termo (`t = 'T1213' OR t LIKE 'T1213.%'`) pela coluna de
-  metadado, e não depender do full-text para ID ATT&CK.
+- ~~Full-text não casa técnica-pai com subtécnica~~ — resolvido na Fase 4
+  pela expansão bidirecional no filtro de metadado (ver Decisões). O
+  comportamento do full-text segue o mesmo; o que mudou é não depender dele
+  para ID ATT&CK.
+- **A perna de full-text fica praticamente inerte em perguntas escritas em
+  português**, porque a coluna `search_text` usa a configuração `english`. Não
+  é defeito: identificador técnico (`T1055`, `4688`, `mimikatz`) é igual nos
+  dois idiomas e continua casando, e a carga semântica fica com o vetor, que
+  atravessa idioma bem (verificado na Fase 3). Vale medir na Fase 6 se uma
+  segunda coluna com a configuração `portuguese` acrescentaria algo.
+- **`k` do RRF, tamanho do pool e `top_k` não foram sintonizados** — os valores
+  atuais (60, 8×, 5) são padrões razoáveis, não resultados de medição. É
+  trabalho da Fase 6, e por isso todos são parâmetros e não constantes
+  embutidas.
 - 181 das 5.664 regras ficaram sem nenhuma plataforma normalizada e 458 sem
   técnica ATT&CK. É esperado (nem toda regra declara), mas vale revisitar na
   Fase 6 se a avaliação mostrar que o filtro por metadado está perdendo regra.
 
 ## Próximos passos
-- Implementar `src/retrieval/` com a busca híbrida da Fase 4, combinando:
-  (a) similaridade de cosseno sobre `embedding` (índice HNSW já criado),
-  (b) filtro por metadado nas colunas `platforms` / `mitre_techniques`
-      (índices GIN já criados) — **com expansão de técnica-pai para
-      subtécnica**, ver Pendências,
-  (c) full-text sobre `search_text` (índice GIN já criado).
-- Decidir e documentar como as duas pontuações são combinadas (RRF, soma
-  ponderada ou filtro-e-reordena). Registrar aqui a escolha e o porquê.
-- Critério de aceite da fase: uma pergunta com termo exato (ex.: "T1055")
-  recupera corretamente mesmo quando a similaridade semântica pura falharia.
-  Vale escrever esse caso como teste antes da implementação.
+- Implementar `src/rag/` (Fase 5): pergunta → `HybridRetriever.search` → prompt
+  com as regras recuperadas → geração via `LLM_PROVIDER`.
+- O prompt precisa ancorar duas regras que já têm suporte no que o retrieval
+  devolve: **citar sempre `rule_uid` e `source_url` reais** (ambos vêm em
+  `RetrievedRule`) e **nunca responder fora do contexto recuperado**.
+- Dois sinais do retrieval que a resposta precisa respeitar:
+  `RetrievedRule.query_truncated` (a query foi cortada — remeter à fonte em vez
+  de fingir que mostrou tudo) e `SearchResponse.relaxed_filters` (não existe
+  regra para a técnica pedida — dizer isso, não empurrar as alternativas como
+  se fossem a resposta).
+- Critério de aceite: a resposta sempre referencia a fonte real recuperada, e
+  funciona trocando `LLM_PROVIDER` entre `anthropic` e `openai`. Testar a troca
+  exige preencher `ANTHROPIC_API_KEY` no `.env` (segue vazia).
 
 ## Histórico de sessões
 
@@ -355,4 +404,50 @@ lendo:
 **Estado em que a sessão foi deixada:** `pytest` verde (78 testes), base
 `detection_rag` populada com 5.664 chunks de `text-embedding-3-small` no
 container `detection_rag_postgres`, commit da Fase 3 feito. Nada da Fase 4
+escrito.
+
+### 2026-08-22 — Sessão 5 (Claude Code)
+
+**Fase 4 concluída.** O que foi feito:
+- `src/retrieval/query.py`: `parse_query` extrai da pergunta os três sinais
+  (técnica ATT&CK, plataforma, termos lexicais) e `build_tsquery` monta a
+  consulta de full-text.
+- `src/retrieval/fusion.py`: Reciprocal Rank Fusion, com as posições de origem
+  preservadas em cada resultado para a interface poder explicar *por que* a
+  regra apareceu.
+- `src/retrieval/search.py`: `HybridRetriever`, `SearchFilters` (com a expansão
+  de técnica) e `SearchResponse`.
+- `src/retrieval/run.py`: CLI de inspeção (`--explain`, `--no-filters`).
+- 35 testes novos em `tests/test_retrieval.py` — 28 unitários e 7 de
+  integração, estes marcados com `@pytest.mark.integration` e pulados
+  automaticamente onde falte Postgres ou chave. 113 no total, todos verdes.
+
+**Critério de aceite atendido, com número.** A pergunta "regras para <técnica>"
+foi medida contra a busca vetorial pura, contando quantas das 5 regras
+devolvidas realmente cobrem a técnica pedida:
+
+| Técnica    | Vetorial pura | Híbrida |
+|------------|---------------|---------|
+| T1055      | 0/5           | 5/5     |
+| T1218.011  | 1/5           | 5/5     |
+| T1552.001  | 0/5           | 5/5     |
+| T1003.001  | 1/5           | 5/5     |
+| T1547.001  | 1/5           | 5/5     |
+
+Para "T1055" a vetorial pura devolve regras de `T1047`, `T1059` e `T1053` — a
+similaridade semântica sozinha não tem como saber o que o código significa.
+Esse é exatamente o cenário que o `CLAUDE.md` descreve no aceite da fase.
+
+**Decisões desta sessão:** as 7 entradas de Fase 4 na seção "Decisões de
+arquitetura" acima.
+
+**Correção feita durante a sessão:** o primeiro teste de RRF afirmava que estar
+em 2º nas duas listas venceria estar em 1º e 3º. Falhou — e a implementação
+estava certa, o teste é que estava errado: a curva 1/(k+rank) é convexa, então
+1/61 + 1/63 > 2/62. A propriedade virou um teste próprio, documentado como
+intencional, porque é contraintuitiva e alguém sintonizando o `k` na Fase 6
+poderia lê-la como bug.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (113 testes, 7 deles de
+integração rodando contra a base real), commit da Fase 4 feito. Nada da Fase 5
 escrito.

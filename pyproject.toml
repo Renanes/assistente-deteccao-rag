@@ -8,6 +8,9 @@ requires-python = ">=3.12"
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q"
+markers = [
+    "integration: exige Postgres com o corpus indexado e chave de embedding",
+]
 
 [tool.ruff]
 line-length = 100
