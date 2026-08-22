@@ -1,8 +1,8 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 2 concluída — Fase 3 (Embeddings e ingestão) é o próximo passo
-- Última atualização: 2026-08-21
+- Fase atual: Fase 3 concluída — Fase 4 (Busca híbrida) é o próximo passo
+- Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
 - **Git dedicado para este projeto** — `agente_detection` estava aninhado
@@ -107,37 +107,94 @@
   íntegro no chunk para o filtro da Fase 4 — o descarte é só do que vira vetor.
   Achado inspecionando a saída real, não previsto no plano da fase.
 
+- **`EMBEDDING_PROVIDER=openai` com `text-embedding-3-small` (1536 dimensões)**
+  — resolve a pendência aberta desde a Fase 0. O motivo de não usar o
+  `3-large` (3072) é concreto e não preferência: os índices HNSW e IVFFlat do
+  pgvector só aceitam até 2.000 dimensões. Com 3.072, a busca vetorial cairia
+  em varredura sequencial sobre o corpus inteiro, ou exigiria migrar a coluna
+  para `halfvec` e aceitar a perda de precisão. Há uma guarda em
+  `check_index_support` que recusa qualquer modelo acima do limite *antes* de
+  gastar chamada de API, e um teste que trava o padrão como indexável.
+- **Não existe `EMBEDDING_PROVIDER=anthropic`** — a Anthropic não tem API de
+  embeddings própria. A alternativa considerada era um
+  `AnthropicEmbeddingProvider` que por baixo chamasse a Voyage; foi descartada
+  porque o nome mentiria sobre qual serviço recebe o texto e qual chave é
+  cobrada. A Voyage entrou como provedor de primeira classe
+  (`EMBEDDING_PROVIDER=voyage`, `VOYAGE_API_KEY`), e `anthropic` levanta um
+  erro dedicado que explica o porquê e aponta as duas saídas — é a resposta
+  intuitiva e errada, e vale ensinar uma vez em vez de deixar quem configura
+  procurar. `LLM_PROVIDER=anthropic` segue válido: a restrição é só de
+  embedding.
+- **`embed_documents` e `embed_query` são métodos separados na interface**,
+  mesmo sendo idênticos na OpenAI. A Voyage distingue `input_type="document"`
+  de `"query"` e a qualidade de retrieval piora sem isso; com um método só, o
+  provedor da Voyage teria que adivinhar o contexto da chamada.
+- **SDKs importados dentro das funções, não no topo dos módulos** — importar
+  `openai`, `anthropic` e `voyageai` de uma vez custa quase um segundo de
+  arranque e nenhuma execução usa os três. Assim, rodar com um provedor não
+  exige que os SDKs dos outros estejam sequer instalados.
+- **Metadados como colunas `TEXT[]` com índice GIN, não como `jsonb`** — o
+  filtro "só regras de Windows para T1055" é o critério de aceite da Fase 4, e
+  o schema é conhecido e estável. Um `jsonb` genérico seria mais lento e mais
+  verboso sem ganhar nada.
+- **Coluna `search_text` gerada pelo banco** (`tsvector` de `embedding_text`,
+  com índice GIN) — é a metade lexical da busca híbrida da Fase 4, e ser
+  gerada impede que fique dessincronizada do texto de origem. Indexa
+  `embedding_text` puro em vez de concatená-lo com `platforms`/
+  `mitre_techniques` por dois motivos: a linha de contexto da Fase 2 já embute
+  os dois nesse texto, e `array_to_string` é STABLE (não IMMUTABLE), o que o
+  Postgres recusa numa coluna gerada.
+- **`embedding_model` gravado em cada linha, com guarda de consistência** —
+  vetores de modelos diferentes não são comparáveis, e misturá-los não quebra
+  nada de forma visível: só devolve vizinhos errados. `check_model_consistency`
+  recusa a ingestão que misturaria modelos, inclusive o caso traiçoeiro de dois
+  modelos de mesma dimensão (`text-embedding-3-small` e `ada-002` têm 1536 os
+  dois). A saída é `--reset`.
+- **Teste que proíbe importar SDK de provedor fora de `src/providers/`** — o
+  requisito central do `CLAUDE.md` (seção 3) passa a ser verificado, e não
+  confiado à memória de quem escreve a próxima fase. Sem ele, um
+  `from openai import OpenAI` no pipeline RAG da Fase 5 passaria despercebido e
+  o lock-in voltaria pela porta dos fundos.
+
 ## Pendências / bloqueios
-- ~~`.env` local só tem placeholders~~ — resolvido em 21/08: `OPENAI_API_KEY`
-  preenchida pelo usuário. `ANTHROPIC_API_KEY` segue vazia.
-- **`.env` está inconsistente com as chaves disponíveis**: `LLM_PROVIDER` e
-  `EMBEDDING_PROVIDER` seguem em `anthropic`, mas só a chave da OpenAI existe.
-  Precisa virar `openai` (ao menos em `EMBEDDING_PROVIDER`) antes da Fase 3
-  rodar ponta a ponta. Não alterado nesta sessão por ser decisão do usuário.
-- ~~Docker Desktop não estava rodando~~ — resolvido em 21/08: subido, com
-  apenas `detection_rag_postgres` ativo (44 MB). Os 4 containers do projeto
-  `siemcopilot` no mesmo daemon estão com `restart=no` e não sobem sozinhos;
-  o deste projeto tem `restart=unless-stopped`. pgvector 0.8.2 confirmado.
+- ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
+  `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
+  `OPENAI_EMBEDDING_MODEL=text-embedding-3-small`. `ANTHROPIC_LLM_MODEL`
+  atualizado de `claude-sonnet-5` para `claude-opus-5`.
+- **`ANTHROPIC_API_KEY` existe no ambiente do SO desta máquina** (108 chars) e
+  em `pydantic-settings` a variável de ambiente tem **precedência sobre o
+  arquivo `.env`**. Ou seja: `LLM_PROVIDER=anthropic` pode funcionar neste
+  shell e falhar em qualquer outro lugar, sem nada no `.env` explicar o
+  porquê. Descoberto porque um teste de "chave ausente" não levantou erro. Os
+  testes agora zeram as três chaves explicitamente, mas vale saber ao depurar.
+- **`anthropic==0.40.0` é uma versão antiga do SDK.** Basta para a geração
+  simples que a Fase 5 precisa (`messages.create` com `system` + `messages`),
+  mas não expõe `thinking` adaptativo nem `output_config.effort`, que são o
+  caminho recomendado nos modelos atuais. Se a Fase 5 for usar esses recursos,
+  atualizar o pin antes.
+- **Full-text não casa técnica-pai com subtécnica.** Verificado no banco:
+  `to_tsvector('english', ...)` tokeniza `T1213.003` como um termo único, então
+  uma busca por `T1213` **não** o recupera (16 regras pela coluna de metadado
+  contra 10 pelo full-text; em `T1055`, 79 contra 58). Não é defeito da Fase 3:
+  é a razão de `mitre_techniques` ser uma coluna `TEXT[]` indexada. A Fase 4
+  precisa expandir o termo (`t = 'T1213' OR t LIKE 'T1213.%'`) pela coluna de
+  metadado, e não depender do full-text para ID ATT&CK.
 - 181 das 5.664 regras ficaram sem nenhuma plataforma normalizada e 458 sem
   técnica ATT&CK. É esperado (nem toda regra declara), mas vale revisitar na
   Fase 6 se a avaliação mostrar que o filtro por metadado está perdendo regra.
 
 ## Próximos passos
-- **Decidir o provedor de embedding e registrar aqui** (bloqueia a Fase 3). A
-  pendência aberta na Fase 0 continua: a Anthropic não tem API de embedding
-  própria — o caminho dela é a Voyage AI, que é outra API e outra chave, não a
-  `ANTHROPIC_API_KEY`. Com só a chave da OpenAI preenchida, o caminho de menor
-  atrito é `EMBEDDING_PROVIDER=openai` (`text-embedding-3-small`, 1536
-  dimensões) e deixar a Anthropic para a geração da Fase 5, que é exatamente a
-  separação que o `CLAUDE.md` prevê ao ter duas variáveis distintas. Se a
-  Voyage entrar depois, registrar `VOYAGE_API_KEY` como terceira variável.
-- Implementar `src/providers/` com a interface comum (geração + embedding) e as
-  duas implementações, sem SDK de provedor vazando para fora dessa camada.
-- Criar o schema do pgvector (dimensão do vetor decidida pelo modelo acima) com
-  colunas de metadado para o filtro da Fase 4: `platforms`, `mitre_techniques`,
-  `source`, `query_language`, `severity`.
-- Indexar `data/normalized/chunks.jsonl` (gerado por
-  `python -m src.chunking.run`; depende de `python -m src.ingestion.run`).
+- Implementar `src/retrieval/` com a busca híbrida da Fase 4, combinando:
+  (a) similaridade de cosseno sobre `embedding` (índice HNSW já criado),
+  (b) filtro por metadado nas colunas `platforms` / `mitre_techniques`
+      (índices GIN já criados) — **com expansão de técnica-pai para
+      subtécnica**, ver Pendências,
+  (c) full-text sobre `search_text` (índice GIN já criado).
+- Decidir e documentar como as duas pontuações são combinadas (RRF, soma
+  ponderada ou filtro-e-reordena). Registrar aqui a escolha e o porquê.
+- Critério de aceite da fase: uma pergunta com termo exato (ex.: "T1055")
+  recupera corretamente mesmo quando a similaridade semântica pura falharia.
+  Vale escrever esse caso como teste antes da implementação.
 
 ## Histórico de sessões
 
@@ -249,3 +306,53 @@ bloqueia nada, mas `pip install ruff` deixaria o lint disponível.
 `chunks.jsonl` gerado e sem defeito na linha de contexto, commit da Fase 2
 feito. Nada da Fase 3 escrito — o primeiro passo dela é a decisão de provedor
 de embedding registrada em "Próximos passos".
+
+### 2026-08-22 — Sessão 4 (Claude Code)
+
+**Fase 3 concluída.** O que foi feito:
+- `.env` e `.env.example` ajustados para a decisão de provedor (ver Decisões).
+- `src/providers/`: `base.py` (interfaces `EmbeddingProvider` e `LLMProvider` +
+  `ProviderError`), `config.py` (`Settings` com pydantic-settings, tabela
+  `EMBEDDING_DIMENSIONS`, constante `PGVECTOR_INDEX_MAX_DIMENSIONS`),
+  `openai_provider.py`, `anthropic_provider.py` (só geração),
+  `voyage_provider.py` (só embedding) e `registry.py`.
+- `src/embeddings/`: `store.py` (schema pgvector, índices, upsert idempotente,
+  inspeção do corpus indexado) e `run.py` (runner com `--limit`, `--reset` e
+  `--dry-run`).
+- 24 testes novos em `tests/test_providers.py` (78 no total, todos verdes).
+
+**Critério de aceite atendido:** base populada e consultável ponta a ponta com
+o provedor OpenAI. 5.664 chunks indexados em 90 segundos (~831 mil tokens,
+~US$ 0,02). Verificado com busca semântica real — e as perguntas foram feitas
+em português contra um corpus em inglês, o que o modelo resolveu bem:
+- "como detectar injecao de processo em Windows" → *Mavinject Inject DLL Into
+  Running Process* (T1055.001), *Windows Process Injection into Commonly Abused
+  Processes* (T1055.002), similaridade 0,656/0,655.
+- "alguem exfiltrando dados compactados com 7zip" → *7Zip Compressing Dump
+  Files* e duas variantes de *Compress Data and Lock With Password for
+  Exfiltration* (T1560.001).
+- "login suspeito de multiplos paises ao mesmo tempo" → *OneLogin User Logins
+  From Multiple Countries* (YARA-L), *Okta User Logins from Multiple Cities*.
+
+**Índices criados:** HNSW (`vector_cosine_ops`) sobre `embedding`; GIN sobre
+`platforms`, `mitre_techniques` e `search_text`; B-tree sobre `rule_uid`.
+
+**Decisões desta sessão:** as 8 entradas de Fase 3 na seção "Decisões de
+arquitetura" acima.
+
+**Duas correções feitas durante a sessão**, ambas descobertas rodando e não
+lendo:
+1. A coluna gerada `search_text` foi recusada pelo Postgres com "generation
+   expression is not immutable" — `array_to_string` é STABLE. A correção
+   melhorou o design: as arrays eram redundantes ali, porque a linha de
+   contexto da Fase 2 já embute plataforma e técnica no `embedding_text`.
+2. Um teste de "chave ausente" não levantou erro, revelando que a
+   `ANTHROPIC_API_KEY` do ambiente do SO tem precedência sobre o `.env` (ver
+   Pendências). Os testes passaram a zerar as três chaves explicitamente, com
+   uma guarda que verifica o próprio isolamento — sem ela, esses testes viram
+   falso-positivo silencioso em máquina alheia.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (78 testes), base
+`detection_rag` populada com 5.664 chunks de `text-embedding-3-small` no
+container `detection_rag_postgres`, commit da Fase 3 feito. Nada da Fase 4
+escrito.
