@@ -1,7 +1,7 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 5 concluída — Fase 6 (Avaliação) é o próximo passo
+- Fase atual: Fase 6 concluída — Fase 7 (Frontend e demo) é o próximo passo
 - Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
@@ -224,6 +224,43 @@
   `finish_reason="length"` na OpenAI) — normalizar os dois é precisamente o
   trabalho desta camada. A decisão original não foi apagada, foi corrigida.
 
+- **REVISÃO de duas decisões da Fase 4, com base na medição da Fase 6.** As
+  decisões originais continuam registradas acima; o que mudou foi a evidência.
+  A avaliação de 30 perguntas mostrou que a busca híbrida como desenhada na
+  Fase 4 era **pior que a busca vetorial pura** (MRR 0,724 contra 0,846). Duas
+  causas independentes, ambas desligadas por padrão:
+  1. **Inferência de plataforma a partir da pergunta.** `infer_platforms` foi
+     escrito para texto de telemetria (`data_source` de uma regra), não para
+     frase em linguagem natural, e aplicado a perguntas dispara demais. Três
+     falhas do mesmo tipo, todas excluindo a resposta certa: "endereço de
+     e-mail" inferiu `email` numa regra `web`; "logs web" inferiu `web` numa
+     regra `network`; "Google Workspace" inferiu `gcp` numa regra **sem
+     plataforma declarada** — e 181 chunks estão nesse caso, então qualquer
+     filtro de plataforma os elimina. Nas três, sem o filtro a regra volta ao
+     1º lugar. Filtro de plataforma **explícito** (faceta de interface) segue
+     valendo: quem escolhe "windows" num menu quis dizer isso; quem escreveu
+     "logs web" numa frase, não. `INFER_PLATFORM_BY_DEFAULT = False`.
+  2. **A perna de full-text.** Medida em quatro variantes (peso 1,0 e 0,5; só
+     identificadores; indexando também a query bruta) e nenhuma superou
+     simplesmente não usá-la. A causa é estrutural e não de ajuste: a coluna
+     `search_text` indexa `embedding_text`, exatamente o texto que o vetor já
+     cobre — as duas pernas olhavam para a mesma coisa, e a lexical só
+     acrescentava ruído de OR. `USE_FULLTEXT_BY_DEFAULT = False`.
+  **O que a revisão não invalida:** o filtro por metadado ATT&CK, que continua
+  ligado, é o que dá o ganho sobre a vetorial pura (MRR 0,879 contra 0,846) e é
+  o que sustenta o critério de aceite da Fase 4. A revisão foi na inferência de
+  plataforma e na perna lexical, não no princípio de filtrar por metadado.
+- **`search_text` passou a indexar a query bruta além da narrativa** — mudança
+  de `ALTER TABLE` numa coluna gerada, sem reindexar vetor nenhum. Indexar só a
+  narrativa deixava a coluna redundante com o embedding; a lógica de detecção é
+  o único material que o vetor não vê (medido: "tttracer" aparece em 3 chunks
+  na narrativa e em outros 6 apenas na query). A perna segue desligada por
+  padrão, mas se for reativada agora tem material próprio para buscar.
+- **O `k` do RRF não foi sintonizado, e não é omissão** — na configuração
+  padrão existe uma única lista ranqueada, e o RRF preserva a ordem dela para
+  qualquer `k`. A varredura só faz sentido com a perna de full-text ligada, e é
+  assim que `run_eval.py --sweep` a executa.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -255,34 +292,45 @@
   pela expansão bidirecional no filtro de metadado (ver Decisões). O
   comportamento do full-text segue o mesmo; o que mudou é não depender dele
   para ID ATT&CK.
-- **A perna de full-text fica praticamente inerte em perguntas escritas em
-  português**, porque a coluna `search_text` usa a configuração `english`. Não
-  é defeito: identificador técnico (`T1055`, `4688`, `mimikatz`) é igual nos
-  dois idiomas e continua casando, e a carga semântica fica com o vetor, que
-  atravessa idioma bem (verificado na Fase 3). Vale medir na Fase 6 se uma
-  segunda coluna com a configuração `portuguese` acrescentaria algo.
-- **`k` do RRF, tamanho do pool e `top_k` não foram sintonizados** — os valores
-  atuais (60, 8×, 5) são padrões razoáveis, não resultados de medição. É
-  trabalho da Fase 6, e por isso todos são parâmetros e não constantes
-  embutidas.
+- ~~A perna de full-text fica inerte em perguntas em português~~ /
+  ~~`k` do RRF não sintonizado~~ — as duas pendências foram resolvidas na Fase
+  6 pela via inesperada de a perna de full-text ser desligada (ver Decisões).
+- **Uma pergunta do conjunto de avaliação segue falhando: q09** ("uso do
+  tttracer.exe para despejar a memória de um processo como o lsass"), na
+  posição 20. A regra certa existe e tem o termo na descrição, mas o corpus tem
+  muitas regras de dump de LSASS e a descrição dela é curta. É o tipo de caso
+  que a perna lexical deveria resolver e não resolveu.
+- **O conjunto de avaliação tem um ponto cego conhecido**: as perguntas foram
+  escritas a partir das *descrições*, então nenhuma testa busca por termo que
+  só existe na lógica de detecção. Foi por isso que a escolha entre desligar a
+  perna lexical e apenas estreitá-la ficou empatada — e o micro-benchmark que
+  tentei montar para desempatar estava mal desenhado (perguntava "regra que usa
+  X" quando dezenas de regras contêm X, sem resposta única) e não informou
+  nada. Fica registrado como o que medir se a perna for reativada.
+- **`top_k` (5) e o multiplicador do pool (8×) seguem sem sintonia medida.** Com
+  recall@5 de 97% na configuração padrão, mexer neles tem pouco a ganhar; ficam
+  como parâmetros.
 - 181 das 5.664 regras ficaram sem nenhuma plataforma normalizada e 458 sem
   técnica ATT&CK. É esperado (nem toda regra declara), mas vale revisitar na
   Fase 6 se a avaliação mostrar que o filtro por metadado está perdendo regra.
 
 ## Próximos passos
-- Montar `eval/questions.jsonl` com 20–30 perguntas de resposta conhecida
-  (pergunta → `rule_uid` correto). Escolher perguntas que exercitem os três
-  caminhos do retrieval: termo exato ATT&CK, descrição semântica pura e
-  identificador lexical (`4688`, `mimikatz`).
-- Escrever `eval/run_eval.py` medindo, no mínimo, recall@k do retrieval — o
-  critério de aceite da fase é um número reproduzível documentado em `eval/`.
-- Aproveitar que o pipeline já expõe o material de duas outras métricas de
-  graça: `RagAnswer.citation_check` (taxa de resposta ancorada) e
-  `SearchResponse.relaxed_filters` (frequência com que o filtro não casa nada).
-- Sintonizar o que ficou em padrão não medido: `k` do RRF (60), multiplicador
-  do pool (8×) e `top_k` (5). Todos já são parâmetros.
-- Documentar no README qual provedor de embedding gerou os números, já que
-  resultados de retrieval variam entre modelos (exigência do `CLAUDE.md`).
+- Fase 7: API FastAPI expondo o pipeline (`src/api/`) e a interface de demo
+  (`src/frontend/`).
+- **Ler a skill de frontend-design da Anthropic antes de desenhar qualquer
+  tela** — é exigência explícita do `CLAUDE.md` (seção 4), com processo de duas
+  passadas: plano de design compacto (paleta de 4–6 cores nomeadas, tipografia
+  com papéis, conceito de layout, um elemento de assinatura), crítica desse
+  plano, e só então implementação.
+- A interface tem material próprio para mostrar, e vale usá-lo em vez de virar
+  mais um chat genérico: `RetrievedRule.matched_by` e `.ranks` explicam por que
+  cada regra apareceu, `citation_check` distingue resposta ancorada de resposta
+  solta, e `relaxed_filters` avisa que não existe regra para o termo pedido.
+- Critério de aceite: alguém de fora consegue rodar e testar sem contexto
+  adicional, e a interface não parece um template genérico de dashboard.
+- Fase 8: README com as decisões de arquitetura e os resultados da avaliação,
+  registrando que os números de `eval/results.md` foram obtidos com
+  `text-embedding-3-small` (exigência do `CLAUDE.md`, seção 3).
 
 ## Histórico de sessões
 
@@ -532,3 +580,71 @@ Decisões) e um teste de regressão que fixa o comportamento nos dois sentidos.
 integração), pipeline RAG funcionando ponta a ponta pelos dois provedores,
 commit da Fase 5 feito. Nada da Fase 6 escrito — `eval/` segue só com
 `.gitkeep`.
+
+### 2026-08-22 — Sessão 7 (Claude Code)
+
+**Fase 6 concluída, com um resultado que contradiz a Fase 4.**
+
+**Método, e por que ele importa aqui.** As 30 regras-alvo foram sorteadas do
+corpus com semente fixa (`20260822`), estratificadas por fonte, **antes** de
+qualquer pergunta ser escrita. Sem isso seria trivial escolher depois só as
+regras que funcionam e publicar um número bonito. As perguntas foram escritas a
+partir da descrição de cada regra, em português, sem copiar o título — há um
+teste verificando isso. Duas limitações que o número carrega e que nenhum
+processo elimina, registradas em `eval/run_eval.py`: só um `rule_uid` conta
+como correto (o corpus tem regras equivalentes, então é um piso), e quem
+escreveu as perguntas conhecia o sistema.
+
+**Resultado da configuração padrão (filtro ATT&CK + vetorial):**
+
+| Métrica | Valor |
+|---|---|
+| recall@1 | 80% |
+| recall@3 | 97% |
+| recall@5 | 97% |
+| recall@10 | 97% |
+| MRR | 0,879 |
+
+Por tipo de pergunta: `attack_id` 100%, `semantic` 100%, `lexical` 92%. Por
+fonte: ESCU 100%, YARA-L 100%, Sigma 92%. Única falha: q09, na posição 20.
+
+**Ablação — e aqui está a contradição com a Fase 4:**
+
+| Configuração | recall@5 | MRR |
+|---|---|---|
+| **Padrão**: filtro ATT&CK + vetorial | 97% | 0,879 |
+| Vetorial pura, sem filtro (linha de base) | 97% | 0,846 |
+| + perna de full-text | 93% | 0,786 |
+| + inferência de plataforma | 87% | 0,796 |
+| + ambas (a híbrida original da Fase 4) | 83% | 0,724 |
+
+A busca híbrida como desenhada na Fase 4 era **pior que não fazer nada**. As
+duas causas e a revisão estão em "Decisões de arquitetura" acima. O que a Fase
+4 mediu ("T1055" indo de 0/5 para 5/5) continua verdadeiro — mas o mérito era
+do filtro por metadado, não da perna lexical, e a Fase 4 atribuiu o ganho ao
+conjunto sem separar as partes. A ablação é o que separa.
+
+**Ancoragem das respostas geradas** (`--with-rag`, com
+`anthropic/claude-opus-5`): 30/30 respostas ancoradas, 0 com citação
+inexistente.
+
+**O que foi entregue:**
+- `eval/questions.jsonl` (30 perguntas), `eval/run_eval.py` (ablação, recortes,
+  varredura de `k`, ancoragem opcional) e `eval/results.md` (reproduzível).
+- Parâmetros novos em `search()` para a ablação poder medir cada perna:
+  `use_fulltext`, `fulltext_weight`, `infer_platform`, `identifiers_only`.
+- `search_text` passou a incluir a query bruta (ver Decisões).
+- 21 testes novos em `tests/test_eval.py`, metade sobre a integridade do
+  conjunto de perguntas e metade travando os defaults que a medição escolheu —
+  sem eles, religar as duas pernas por parecer "mais completo" derrubaria o
+  recall sem nada acusar. 156 no total, todos verdes.
+
+**Um experimento que não deu certo, registrado para não ser refeito:** tentei
+desempatar "desligar a perna lexical" contra "estreitá-la" com um
+micro-benchmark sobre termos que só existem na lógica de detecção. O desenho
+estava errado — perguntava "regra que usa X" quando dezenas de regras contêm X,
+sem resposta única, e devolveu `>20` para tudo. Não informou nada, e a escolha
+acabou sendo pela configuração de melhor MRR, que também é a mais simples.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (156 testes),
+`eval/results.md` gerado, commit da Fase 6 feito. Nada da Fase 7 escrito.

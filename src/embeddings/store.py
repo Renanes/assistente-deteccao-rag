@@ -12,9 +12,12 @@ Três decisões de schema, todas voltadas para a Fase 4 (busca híbrida):
    e mais verboso sem ganhar nada — o schema já é conhecido e estável.
 
 2. **Coluna `search_text` gerada, com índice GIN de full-text.** É a metade
-   lexical da busca híbrida. Inclui título, texto embeddado e os IDs ATT&CK
-   justamente para que "T1055" case por termo exato, que é o caso em que a
-   similaridade vetorial pura falha.
+   lexical da busca híbrida. Indexa o texto embeddado mais a query bruta — a
+   query entrou na Fase 6, quando a medição mostrou que indexar só a narrativa
+   deixava esta coluna redundante com o vetor, que cobre o mesmo texto. A perna
+   lexical está desligada por padrão desde então (ver `src/retrieval/search.py`,
+   `USE_FULLTEXT_BY_DEFAULT`); a coluna e o índice continuam porque ativá-la é
+   uma flag, e o custo de mantê-los é irrelevante.
 
 3. **`embedding_model` gravado em cada linha.** Vetores de modelos diferentes
    não são comparáveis. Sem essa coluna, trocar o `EMBEDDING_PROVIDER` no meio
@@ -137,14 +140,18 @@ def create_schema(conn: psycopg.Connection, dimensions: int) -> None:
                 -- Metade lexical da busca híbrida da Fase 4. Gerada pelo banco
                 -- para não poder ficar dessincronizada do texto de origem.
                 --
-                -- Indexa `embedding_text` e não uma concatenação com
-                -- `platforms`/`mitre_techniques`: a linha de contexto da Fase 2
-                -- já embute plataforma e técnica nesse texto ("Regra Sigma para
-                -- windows. Técnicas MITRE ATT&CK: T1055.001."), então as arrays
-                -- seriam duplicação. E `array_to_string` é STABLE, não
-                -- IMMUTABLE — o Postgres recusa a coluna gerada com ela.
+                -- Não inclui `platforms`/`mitre_techniques`: a linha de
+                -- contexto da Fase 2 já embute os dois em `embedding_text`, e
+                -- `array_to_string` é STABLE (não IMMUTABLE), o que o Postgres
+                -- recusa numa coluna gerada.
+                --
+                -- Inclui a `query` bruta desde a Fase 6. Indexar só a narrativa
+                -- tornava esta coluna redundante com o vetor, que cobre o mesmo
+                -- texto; a lógica de detecção é o único material que o
+                -- embedding não vê (medido: "tttracer" aparece em 3 chunks na
+                -- narrativa e em outros 6 apenas na query).
                 search_text      tsvector GENERATED ALWAYS AS (
-                    to_tsvector('english', embedding_text)
+                    to_tsvector('english', embedding_text || ' ' || query)
                 ) STORED
             )
             """

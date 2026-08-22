@@ -95,12 +95,33 @@ def _is_high_signal(token: str) -> bool:
     return len(token) >= _MIN_TERM_LENGTH
 
 
-def extract_lexical_terms(text: str) -> list[str]:
-    """Termos de alto sinal, sem repetição, na ordem em que aparecem."""
+def _looks_like_identifier(token: str) -> bool:
+    """Token com forma de identificador, não de palavra corrente.
+
+    Critério mais estreito que `_is_high_signal`: exige dígito, pontuação
+    interna ou maiúscula no meio (`T1055`, `CVE-2022-42889`, `tttracer.exe`,
+    `DontShowUI`). Palavra comum longa não passa.
+    """
+    if any(character.isdigit() for character in token):
+        return True
+    if any(separator in token for separator in "._-"):
+        return True
+    return any(character.isupper() for character in token[1:])
+
+
+def extract_lexical_terms(text: str, identifiers_only: bool = False) -> list[str]:
+    """Termos de alto sinal, sem repetição, na ordem em que aparecem.
+
+    Com `identifiers_only`, aceita apenas tokens com forma de identificador.
+    A medição da Fase 6 mostrou que palavras correntes longas ("conexao",
+    "identificar", "ferramenta") viravam ruído na consulta OR e empurravam a
+    regra certa para baixo — ver `eval/results.md`.
+    """
+    predicate = _looks_like_identifier if identifiers_only else _is_high_signal
     found: dict[str, None] = {}
     for token in _TOKEN_RE.findall(text):
         cleaned = token.strip("._-")
-        if cleaned and _is_high_signal(cleaned):
+        if cleaned and cleaned.lower() not in _PORTUGUESE_STOPWORDS and predicate(cleaned):
             found.setdefault(cleaned.lower(), None)
     return list(found)
 
@@ -113,7 +134,9 @@ def extract_query_techniques(text: str) -> list[str]:
     return list(found)
 
 
-def parse_query(text: str) -> ParsedQuery:
+def parse_query(
+    text: str, infer_platform: bool = True, identifiers_only: bool = False
+) -> ParsedQuery:
     """Analisa a pergunta do analista e devolve os sinais de busca."""
     return ParsedQuery(
         text=text,
@@ -122,8 +145,8 @@ def parse_query(text: str) -> ParsedQuery:
         # "sysmon" mapeia para `windows` ao classificar uma regra, precisa
         # mapear igual ao interpretar a pergunta. Duas tabelas de sinônimos
         # divergiriam com o tempo e o filtro passaria a errar em silêncio.
-        platforms=infer_platforms([text]),
-        lexical_terms=extract_lexical_terms(text),
+        platforms=infer_platforms([text]) if infer_platform else [],
+        lexical_terms=extract_lexical_terms(text, identifiers_only=identifiers_only),
     )
 
 

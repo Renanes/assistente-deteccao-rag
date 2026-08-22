@@ -44,6 +44,37 @@ TABLE_NAME = "rule_chunks"
 CANDIDATE_POOL_MULTIPLIER = 8
 MIN_CANDIDATE_POOL = 50
 
+# Inferir plataforma da pergunta e transformar isso em filtro rígido: DESLIGADO.
+#
+# Era o comportamento padrão até a Fase 6 medi-lo. `infer_platforms` foi escrito
+# para texto de telemetria (`data_source` de uma regra), não para pergunta em
+# linguagem natural, e aplicado a perguntas ele dispara demais. Três falhas
+# medidas, todas do mesmo tipo — o filtro excluiu a resposta certa:
+#   q06: "endereço de e-mail" infere `email`; a regra é `web`.
+#   q14: "logs web" infere `web`; a regra é `network`.
+#   q24: "Google Workspace" infere `gcp`; a regra não declara plataforma —
+#        e 181 chunks estão nesse caso, então qualquer filtro os elimina.
+# Nas três, sem o filtro a regra volta para o 1º lugar. Filtro de plataforma
+# explícito (de uma faceta de interface) segue válido: quem escolheu "windows"
+# num menu quis dizer isso; quem escreveu "logs web" numa frase, não.
+INFER_PLATFORM_BY_DEFAULT = False
+
+# Perna de full-text no caminho padrão: DESLIGADA.
+#
+# A Fase 6 mediu quatro variantes dela (peso 1,0 e 0,5; só identificadores;
+# indexando também a query bruta) e nenhuma superou simplesmente não usá-la:
+# MRR 0,879 sem a perna contra 0,867 na melhor variante com ela, com o mesmo
+# recall@5 de 97%. A causa é estrutural, não de ajuste: `search_text` indexa
+# `embedding_text`, exatamente o texto que o vetor já cobre — as duas pernas
+# olham para a mesma coisa, e a lexical só acrescenta ruído de OR.
+#
+# O que a medição NÃO invalida é o filtro por metadado, que continua ligado e é
+# o que faz "T1055" recuperar corretamente (critério de aceite da Fase 4). A
+# perna segue implementada e ativável: a coluna `search_text` passou a incluir
+# a query bruta, o que a tornaria útil para termo que só existe na lógica de
+# detecção — caso que o conjunto de avaliação atual não cobre.
+USE_FULLTEXT_BY_DEFAULT = False
+
 
 @dataclass(frozen=True)
 class SearchFilters:
@@ -228,7 +259,13 @@ class HybridRetriever:
         return results
 
     def _run(
-        self, parsed: ParsedQuery, filters: SearchFilters, top_k: int, rrf_k: int
+        self,
+        parsed: ParsedQuery,
+        filters: SearchFilters,
+        top_k: int,
+        rrf_k: int,
+        use_fulltext: bool = True,
+        fulltext_weight: float = 1.0,
     ) -> tuple[list[RetrievedRule], tuple[str, ...]]:
         where, params = _filter_sql(filters)
         pool = max(top_k * CANDIDATE_POOL_MULTIPLIER, MIN_CANDIDATE_POOL)
@@ -238,11 +275,17 @@ class HybridRetriever:
 
         lists = [RankedList(name="vetorial", chunk_uids=vector_uids)]
 
-        tsquery = build_tsquery(parsed.lexical_terms)
+        tsquery = build_tsquery(parsed.lexical_terms) if use_fulltext else ""
         if tsquery:
             fulltext_uids = self._fulltext_candidates(tsquery, where, params, pool)
             if fulltext_uids:
-                lists.append(RankedList(name="full-text", chunk_uids=fulltext_uids))
+                lists.append(
+                    RankedList(
+                        name="full-text",
+                        chunk_uids=fulltext_uids,
+                        weight=fulltext_weight,
+                    )
+                )
 
         fused = reciprocal_rank_fusion(lists, k=rrf_k, limit=top_k)
         return self._hydrate(fused, similarities), tuple(item.name for item in lists)
@@ -253,22 +296,38 @@ class HybridRetriever:
         top_k: int = 5,
         filters: SearchFilters | None = None,
         rrf_k: int = RRF_K,
+        use_fulltext: bool = USE_FULLTEXT_BY_DEFAULT,
+        fulltext_weight: float = 1.0,
+        infer_platform: bool = INFER_PLATFORM_BY_DEFAULT,
+        identifiers_only: bool = False,
     ) -> SearchResponse:
         """Busca as regras mais relevantes para a pergunta.
 
-        Se `filters` não vier, os filtros são deduzidos da própria pergunta.
+        Se `filters` não vier, os filtros são deduzidos da pergunta — hoje isso
+        significa apenas a técnica ATT&CK (ver `INFER_PLATFORM_BY_DEFAULT`).
+        Filtro de plataforma explícito, vindo da API ou da interface, continua
+        funcionando normalmente: o que a medição desligou foi a *inferência*.
+
+        `use_fulltext` e `infer_platform` seguem parametrizados para a avaliação
+        poder medir as duas pernas; os defaults saíram de `eval/results.md`.
         """
-        parsed = parse_query(question)
+        parsed = parse_query(
+            question, infer_platform=infer_platform, identifiers_only=identifiers_only
+        )
         effective = filters if filters is not None else SearchFilters.from_parsed(parsed)
 
-        results, legs = self._run(parsed, effective, top_k, rrf_k)
+        results, legs = self._run(
+            parsed, effective, top_k, rrf_k, use_fulltext, fulltext_weight
+        )
 
         # Filtro que não devolve nada é pior que filtro nenhum: o analista fica
         # sem resposta e sem saber por quê. Refazemos sem o filtro e marcamos —
         # a Fase 5 precisa dizer "não achei regra para T9999, mas veja estas".
         relaxed = False
         if not results and not effective.is_empty:
-            results, legs = self._run(parsed, SearchFilters(), top_k, rrf_k)
+            results, legs = self._run(
+                parsed, SearchFilters(), top_k, rrf_k, use_fulltext, fulltext_weight
+            )
             relaxed = True
 
         return SearchResponse(
