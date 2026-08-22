@@ -4,7 +4,7 @@ Nenhum módulo fora deste pacote deve importar `openai`, `anthropic` ou
 `voyageai` diretamente.
 """
 
-from .base import EmbeddingProvider, LLMProvider, ProviderError
+from .base import EmbeddingProvider, Generation, LLMProvider, ProviderError
 from .config import (
     EMBEDDING_DIMENSIONS,
     PGVECTOR_INDEX_MAX_DIMENSIONS,
@@ -24,6 +24,7 @@ __all__ = [
     "LLM_PROVIDERS",
     "PGVECTOR_INDEX_MAX_DIMENSIONS",
     "EmbeddingProvider",
+    "Generation",
     "LLMProvider",
     "ProviderError",
     "Settings",

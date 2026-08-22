@@ -1,7 +1,7 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 4 concluída — Fase 5 (Pipeline RAG) é o próximo passo
+- Fase atual: Fase 5 concluída — Fase 6 (Avaliação) é o próximo passo
 - Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
@@ -196,22 +196,61 @@
   documento em 40º no vetor e 3º no full-text só pode ser resgatado pela fusão
   se estiver nas duas listas. Pool curto transformaria o RRF em decoração.
 
+- **Citações são verificadas em código, não só pedidas no prompt (Fase 5)** — o
+  critério de aceite é "a resposta sempre referencia a fonte real recuperada", e
+  prompt é pedido, não garantia: nada impede um modelo citar `[7]` com cinco
+  regras no contexto. `check_citations` devolve os índices citados, os
+  inválidos e se a resposta não citou nada, e é isso que transforma "pedimos
+  para citar certo" em "sabemos se citou". A Fase 6 mede a taxa disso.
+- **As regras entram no contexto numeradas (`[1]`, `[2]`), não pelo `rule_uid`**
+  — pedir que o modelo repita `sigma:ec570e53-4c76-45a9-804d-dc3f355ff7a7` no
+  meio do texto seria convidar erro de transcrição, e um UID errado é uma
+  citação falsa. Um índice curto é fácil de reproduzir sem errar e trivial de
+  casar por regex depois. O mapeamento índice → regra real é feito em código.
+- **Sem regra recuperada, o modelo não é chamado** — o pipeline devolve uma
+  resposta fixa dizendo que nada no acervo corresponde. Chamar o modelo com
+  contexto vazio só criaria a oportunidade de ele responder de memória, que é
+  exatamente o que a fase precisa impedir. De quebra, é mais barato.
+- **O aviso de filtro relaxado vem antes do contexto, não depois** — se o
+  modelo só descobre que nenhuma regra cobre a técnica pedida depois de ler
+  cinco regras plausíveis, a chance de apresentá-las como resposta à pergunta
+  original é muito maior.
+- **REVISÃO da interface de `LLMProvider` (decidida na Fase 3)**: `generate`
+  passou a devolver um `Generation` (texto + `truncated` + `stop_reason`) em
+  vez de `str`. O motivo: a primeira versão inferia truncamento pela pontuação
+  final do texto, e acusou de cortada uma resposta legítima terminada em bloco
+  de código. Só o provedor sabe se bateu no teto de tokens, e cada SDK chama
+  isso de um jeito (`stop_reason="max_tokens"` na Anthropic,
+  `finish_reason="length"` na OpenAI) — normalizar os dois é precisamente o
+  trabalho desta camada. A decisão original não foi apagada, foi corrigida.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
   `OPENAI_EMBEDDING_MODEL=text-embedding-3-small`. `ANTHROPIC_LLM_MODEL`
   atualizado de `claude-sonnet-5` para `claude-opus-5`.
-- **`ANTHROPIC_API_KEY` existe no ambiente do SO desta máquina** (108 chars) e
-  em `pydantic-settings` a variável de ambiente tem **precedência sobre o
-  arquivo `.env`**. Ou seja: `LLM_PROVIDER=anthropic` pode funcionar neste
-  shell e falhar em qualquer outro lugar, sem nada no `.env` explicar o
-  porquê. Descoberto porque um teste de "chave ausente" não levantou erro. Os
-  testes agora zeram as três chaves explicitamente, mas vale saber ao depurar.
-- **`anthropic==0.40.0` é uma versão antiga do SDK.** Basta para a geração
-  simples que a Fase 5 precisa (`messages.create` com `system` + `messages`),
-  mas não expõe `thinking` adaptativo nem `output_config.effort`, que são o
-  caminho recomendado nos modelos atuais. Se a Fase 5 for usar esses recursos,
-  atualizar o pin antes.
+- **`ANTHROPIC_API_KEY` existe no ambiente do SO desta máquina** e em
+  `pydantic-settings` a variável de ambiente tem **precedência sobre o arquivo
+  `.env`**. Em 22/08 foi verificado que o valor no ambiente e o no `.env` são
+  idênticos, então hoje não há divergência — mas a precedência continua valendo
+  e uma edição no `.env` que não seja replicada no ambiente seria ignorada em
+  silêncio. Os testes zeram as três chaves explicitamente por causa disso.
+- **O `.env` foi restaurado de uma cópia anterior à Fase 3 em 22/08**, junto com
+  a inclusão da chave Anthropic, desfazendo `EMBEDDING_PROVIDER=openai`,
+  `OPENAI_EMBEDDING_MODEL=text-embedding-3-small` e `ANTHROPIC_LLM_MODEL=
+  claude-opus-5`. Ficou com `EMBEDDING_PROVIDER=anthropic`, que não existe — as
+  Fases 3 e 4 pararam de rodar até a correção. A guarda da Fase 3 pegou o caso
+  com mensagem explicativa em vez de falhar obscuramente, que era o objetivo
+  dela. Corrigido; `LLM_PROVIDER=anthropic` foi preservado por ser mudança
+  intencional. Vale ter em mente que `.env` é gitignored e não tem histórico:
+  uma regressão dele não aparece em `git diff`.
+- **`anthropic==0.40.0` é uma versão antiga do SDK.** Confirmado na Fase 5
+  que basta para o que o pipeline faz: `messages.create` com `system` +
+  `messages` funciona, e `claude-opus-5` e `claude-sonnet-5` respondem
+  normalmente. O que ela não expõe é `thinking` adaptativo e
+  `output_config.effort`. Nenhum dos dois é necessário para a resposta citada
+  da Fase 5, mas valeria atualizar o pin se a Fase 6 mostrar que respostas mais
+  elaboradas melhoram a avaliação.
 - ~~Full-text não casa técnica-pai com subtécnica~~ — resolvido na Fase 4
   pela expansão bidirecional no filtro de metadado (ver Decisões). O
   comportamento do full-text segue o mesmo; o que mudou é não depender dele
@@ -231,19 +270,19 @@
   Fase 6 se a avaliação mostrar que o filtro por metadado está perdendo regra.
 
 ## Próximos passos
-- Implementar `src/rag/` (Fase 5): pergunta → `HybridRetriever.search` → prompt
-  com as regras recuperadas → geração via `LLM_PROVIDER`.
-- O prompt precisa ancorar duas regras que já têm suporte no que o retrieval
-  devolve: **citar sempre `rule_uid` e `source_url` reais** (ambos vêm em
-  `RetrievedRule`) e **nunca responder fora do contexto recuperado**.
-- Dois sinais do retrieval que a resposta precisa respeitar:
-  `RetrievedRule.query_truncated` (a query foi cortada — remeter à fonte em vez
-  de fingir que mostrou tudo) e `SearchResponse.relaxed_filters` (não existe
-  regra para a técnica pedida — dizer isso, não empurrar as alternativas como
-  se fossem a resposta).
-- Critério de aceite: a resposta sempre referencia a fonte real recuperada, e
-  funciona trocando `LLM_PROVIDER` entre `anthropic` e `openai`. Testar a troca
-  exige preencher `ANTHROPIC_API_KEY` no `.env` (segue vazia).
+- Montar `eval/questions.jsonl` com 20–30 perguntas de resposta conhecida
+  (pergunta → `rule_uid` correto). Escolher perguntas que exercitem os três
+  caminhos do retrieval: termo exato ATT&CK, descrição semântica pura e
+  identificador lexical (`4688`, `mimikatz`).
+- Escrever `eval/run_eval.py` medindo, no mínimo, recall@k do retrieval — o
+  critério de aceite da fase é um número reproduzível documentado em `eval/`.
+- Aproveitar que o pipeline já expõe o material de duas outras métricas de
+  graça: `RagAnswer.citation_check` (taxa de resposta ancorada) e
+  `SearchResponse.relaxed_filters` (frequência com que o filtro não casa nada).
+- Sintonizar o que ficou em padrão não medido: `k` do RRF (60), multiplicador
+  do pool (8×) e `top_k` (5). Todos já são parâmetros.
+- Documentar no README qual provedor de embedding gerou os números, já que
+  resultados de retrieval variam entre modelos (exigência do `CLAUDE.md`).
 
 ## Histórico de sessões
 
@@ -451,3 +490,45 @@ poderia lê-la como bug.
 **Estado em que a sessão foi deixada:** `pytest` verde (113 testes, 7 deles de
 integração rodando contra a base real), commit da Fase 4 feito. Nada da Fase 5
 escrito.
+
+### 2026-08-22 — Sessão 6 (Claude Code)
+
+**Chave Anthropic validada** a pedido do usuário, com chamada real: autentica,
+e tanto `claude-opus-5` quanto `claude-sonnet-5` respondem. Na mesma checagem
+apareceu a regressão do `.env` registrada em Pendências.
+
+**Fase 5 concluída.** O que foi feito:
+- `src/rag/prompt.py`: instrução de sistema com as cinco regras de ancoragem,
+  formatação numerada das regras recuperadas e montagem do prompt.
+- `src/rag/pipeline.py`: `RagPipeline`, `RagAnswer` e `check_citations`.
+- `src/rag/run.py`: CLI com `--provider` (sobrescreve `LLM_PROVIDER` só na
+  execução) e `--show-sources`.
+- `src/providers/base.py`: `Generation` (ver a revisão em Decisões).
+- 22 testes novos em `tests/test_rag.py` — 20 unitários com LLM e retriever
+  falsos, mais 2 de integração. 135 no total, todos verdes.
+
+**Critério de aceite atendido nas três partes:**
+1. *Cita a fonte real*: as citações são resolvidas para `RetrievedRule` e o
+   teste de integração confere que todo `rule_uid` citado está entre os
+   recuperados e tem `source_url`.
+2. *Nunca responde fora do contexto*: perguntado "qual a capital da França?",
+   o modelo respondeu "As regras fornecidas não respondem a essa pergunta — ela
+   não é sobre detecção" e descreveu o que o contexto cobria. Ele sabe a
+   resposta e recusou usá-la.
+3. *Funciona com os dois provedores*: teste parametrizado sobre `anthropic` e
+   `openai`, ambos passando, com a resposta ancorada nos dois casos.
+
+**Configuração em uso:** gerar com `anthropic/claude-opus-5`, embeddar com
+`openai/text-embedding-3-small`. É exatamente o cenário que motivou separar
+`LLM_PROVIDER` de `EMBEDDING_PROVIDER` na Fase 3.
+
+**Correção feita durante a sessão:** o aviso "a resposta pode ter sido cortada"
+disparou numa resposta completa da OpenAI que terminava em bloco de código. A
+heurística olhava a pontuação final do texto, o que é impossível de acertar. A
+correção virou mudança de interface (ver a revisão de `LLMProvider` em
+Decisões) e um teste de regressão que fixa o comportamento nos dois sentidos.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (135 testes, 9 de
+integração), pipeline RAG funcionando ponta a ponta pelos dois provedores,
+commit da Fase 5 feito. Nada da Fase 6 escrito — `eval/` segue só com
+`.gitkeep`.

@@ -14,7 +14,7 @@ Este é um dos poucos módulos autorizados a importar o SDK da Anthropic.
 
 from __future__ import annotations
 
-from .base import LLMProvider, ProviderError
+from .base import Generation, LLMProvider, ProviderError
 from .config import Settings
 
 
@@ -35,7 +35,7 @@ class AnthropicLLMProvider(LLMProvider):
 
         self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
 
-    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> str:
+    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> Generation:
         response = self._client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
@@ -45,4 +45,10 @@ class AnthropicLLMProvider(LLMProvider):
         # `content` é uma lista de blocos tipados; só os de texto interessam
         # aqui. Indexar `content[0].text` direto quebraria se a resposta viesse
         # com um bloco de outro tipo à frente.
-        return "".join(block.text for block in response.content if block.type == "text")
+        text = "".join(block.text for block in response.content if block.type == "text")
+
+        return Generation(
+            text=text,
+            truncated=response.stop_reason == "max_tokens",
+            stop_reason=response.stop_reason,
+        )

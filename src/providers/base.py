@@ -23,6 +23,25 @@ Duas decisões de forma valem registro:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Generation:
+    """Texto gerado mais o que o provedor disse sobre como parou.
+
+    `generate` devolve isto em vez de uma string porque "a resposta acabou" e "a
+    resposta bateu no teto de tokens" são coisas diferentes, e só o provedor
+    sabe qual foi. Inferir pelo texto não funciona: uma resposta que termina num
+    bloco de código não tem pontuação final e pareceria cortada. Cada SDK expõe
+    o motivo com um nome próprio (`stop_reason` na Anthropic, `finish_reason` na
+    OpenAI); normalizar aqui é justamente o trabalho desta camada.
+    """
+
+    text: str
+    truncated: bool = False
+    #: Motivo de parada cru, como o provedor devolveu. Só para log e depuração.
+    stop_reason: str | None = None
 
 
 class ProviderError(RuntimeError):
@@ -78,10 +97,10 @@ class LLMProvider(ABC):
     model: str
 
     @abstractmethod
-    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> str:
-        """Devolve o texto gerado para um par (instrução de sistema, pergunta).
+    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> Generation:
+        """Gera a resposta para um par (instrução de sistema, pergunta).
 
         `system` é separado de `prompt` porque os dois provedores tratam a
-        instrução de sistema como campo próprio, e é nela que a Fase 5 vai
-        ancorar a regra de não responder fora do contexto recuperado.
+        instrução de sistema como campo próprio, e é nela que a Fase 5 ancora a
+        regra de não responder fora do contexto recuperado.
         """

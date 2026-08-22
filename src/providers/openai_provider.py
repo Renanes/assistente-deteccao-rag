@@ -7,7 +7,7 @@ pelo `CLAUDE.md` (seção 3) foi furada.
 
 from __future__ import annotations
 
-from .base import EmbeddingProvider, LLMProvider, ProviderError
+from .base import EmbeddingProvider, Generation, LLMProvider, ProviderError
 from .config import EMBEDDING_DIMENSIONS, Settings
 
 # Quantos textos por requisição de embedding.
@@ -81,7 +81,7 @@ class OpenAILLMProvider(LLMProvider):
 
         self._client = OpenAI(api_key=settings.openai_api_key)
 
-    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> str:
+    def generate(self, system: str, prompt: str, max_tokens: int = 2048) -> Generation:
         response = self._client.chat.completions.create(
             model=self.model,
             max_completion_tokens=max_tokens,
@@ -90,4 +90,12 @@ class OpenAILLMProvider(LLMProvider):
                 {"role": "user", "content": prompt},
             ],
         )
-        return response.choices[0].message.content or ""
+        choice = response.choices[0]
+
+        return Generation(
+            text=choice.message.content or "",
+            # "length" é como a OpenAI diz que bateu no teto de tokens; a
+            # Anthropic chama o mesmo evento de "max_tokens".
+            truncated=choice.finish_reason == "length",
+            stop_reason=choice.finish_reason,
+        )
