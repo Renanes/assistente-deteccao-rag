@@ -54,13 +54,51 @@ class IndexedCorpusInfo:
     models: tuple[str, ...] = ()
 
 
-def connect(database_url: str) -> psycopg.Connection:
-    """Abre conexão com o tipo `vector` registrado no adaptador."""
-    conn = psycopg.connect(database_url)
+def ensure_extension(conn: psycopg.Connection) -> None:
+    """Garante a extensão `vector`. Chamado só no caminho de indexação.
+
+    Separado de `connect` de propósito. A versão anterior rodava este DDL em
+    **toda** conexão, o que era desperdício num script e um defeito na API: a
+    Fase 7 subiu com uma conexão por requisição e o servidor travou a partir da
+    segunda pergunta, com `CREATE EXTENSION IF NOT EXISTS` pegando lock em
+    `pg_extension` a cada chamada. Criar extensão é operação de preparo do
+    ambiente, não de leitura.
+    """
     conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-    # Precisa vir depois do CREATE EXTENSION: o registro consulta o OID do tipo
-    # `vector`, que não existe antes da extensão ser criada.
-    register_vector(conn)
+    conn.commit()
+
+
+# Segundos de espera por conexão antes de desistir.
+#
+# O default do libpq é ~30s, e 30s de espera silenciosa é indistinguível de um
+# travamento para quem está usando. Foi exatamente assim que o problema de IPv6
+# do `localhost` se manifestou na Fase 7: a API parecia travada, não lenta. Com
+# um teto curto, uma configuração errada falha com mensagem em vez de pendurar.
+CONNECT_TIMEOUT_SECONDS = 8
+
+
+def connect(
+    database_url: str, ensure: bool = False, connect_timeout: int = CONNECT_TIMEOUT_SECONDS
+) -> psycopg.Connection:
+    """Abre conexão com o tipo `vector` registrado no adaptador.
+
+    `ensure=True` cria a extensão antes de registrar o tipo — necessário só na
+    primeira execução de um banco vazio (`src.embeddings.run`). Nas leituras a
+    extensão já existe, e tentar recriá-la a cada conexão custa um lock.
+    """
+    conn = psycopg.connect(database_url, connect_timeout=connect_timeout)
+    if ensure:
+        ensure_extension(conn)
+    # `register_vector` consulta o OID do tipo `vector`; se a extensão não
+    # existir, a mensagem daqui é mais útil que o erro cru do adaptador.
+    try:
+        register_vector(conn)
+    except Exception as error:  # noqa: BLE001
+        conn.close()
+        raise RuntimeError(
+            "extensão `vector` não encontrada no banco. Suba o Postgres com "
+            "`docker compose up -d` e rode `python -m src.embeddings.run`."
+        ) from error
     return conn
 
 

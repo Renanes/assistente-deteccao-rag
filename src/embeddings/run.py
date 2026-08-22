@@ -134,7 +134,8 @@ def main() -> int:
         return 0
 
     try:
-        with store.connect(settings.resolved_database_url()) as conn:
+        # `ensure=True`: é aqui que a extensão é criada, no preparo do ambiente.
+        with store.connect(settings.resolved_database_url(), ensure=True) as conn:
             if args.reset:
                 store.drop_schema(conn)
                 print("tabela removida (--reset)")

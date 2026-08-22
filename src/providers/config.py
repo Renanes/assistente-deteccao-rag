@@ -76,6 +76,10 @@ class Settings(BaseSettings):
     postgres_password: str = ""
     database_url: str = ""
 
+    # --- API (Fase 7) ---
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+
     # --- Retrieval ---
     retrieval_top_k: int = Field(default=5, ge=1)
 

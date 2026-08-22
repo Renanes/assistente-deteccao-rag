@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesa de referência — assistente de detecção</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="desk-head">
+  <div class="desk-head__inner">
+    <div class="desk-head__mark">
+      <span class="mark__glyph" aria-hidden="true">§</span>
+      <div>
+        <h1>Mesa de referência</h1>
+        <p class="desk-head__sub">Regras públicas de detecção — SigmaHQ, Splunk ESCU, YARA-L</p>
+      </div>
+    </div>
+    <dl class="desk-head__stats" id="deskStats">
+      <div><dt>acervo</dt><dd id="statChunks">—</dd></div>
+      <div><dt>embedding</dt><dd id="statEmbedding">—</dd></div>
+      <div><dt>geração</dt><dd id="statLlm">—</dd></div>
+    </dl>
+  </div>
+</header>
+
+<main class="desk">
+
+  <form class="ask" id="askForm">
+    <label class="ask__label" for="question">O que você precisa detectar?</label>
+    <div class="ask__row">
+      <input
+        id="question"
+        name="question"
+        type="text"
+        class="ask__input"
+        autocomplete="off"
+        maxlength="1000"
+        placeholder="ex.: tem regra pra T1055 no Windows?"
+        required>
+      <button type="submit" class="ask__submit" id="askSubmit">Consultar</button>
+    </div>
+    <p class="ask__hint">
+      A resposta cita apenas regras deste acervo. Cada citação é conferida contra
+      as regras recuperadas antes de aparecer aqui.
+    </p>
+    <ul class="ask__examples" id="examples">
+      <li><button type="button" data-q="tem regra pra T1055 no Windows?">T1055 no Windows</button></li>
+      <li><button type="button" data-q="como detectar dump de memória do LSASS?">dump do LSASS</button></li>
+      <li><button type="button" data-q="login suspeito de múltiplos países ao mesmo tempo">login de vários países</button></li>
+      <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
+    </ul>
+  </form>
+
+  <section class="state" id="stateIdle">
+    <p class="state__lead">Pergunte em linguagem natural. A resposta vem com a regra exata usada como fonte.</p>
+    <ol class="state__how">
+      <li><span>1</span> A pergunta vira vetor e, se citar uma técnica ATT&amp;CK, também um filtro rígido.</li>
+      <li><span>2</span> O acervo devolve as regras mais próximas, com posição e similaridade.</li>
+      <li><span>3</span> O modelo responde só com o que foi recuperado — e as citações são conferidas em código.</li>
+    </ol>
+  </section>
+
+  <section class="state state--busy" id="stateBusy" hidden aria-live="polite">
+    <p>Consultando o acervo…</p>
+  </section>
+
+  <section class="state state--error" id="stateError" hidden role="alert">
+    <h2 id="errorTitle">Não deu para consultar</h2>
+    <p id="errorDetail"></p>
+  </section>
+
+  <section class="result" id="result" hidden>
+
+    <div class="answer">
+      <div class="answer__head">
+        <!-- Elemento de assinatura: o selo de ancoragem. Reporta o resultado da
+             verificação de citação feita em código, não uma promessa do prompt. -->
+        <div class="seal" id="seal">
+          <span class="seal__ring" aria-hidden="true"></span>
+          <div class="seal__text">
+            <strong id="sealTitle">—</strong>
+            <span id="sealDetail"></span>
+          </div>
+        </div>
+        <p class="answer__meta" id="answerMeta"></p>
+      </div>
+
+      <div class="notice notice--warn" id="noticeRelaxed" hidden>
+        <strong>Não há regra para o termo pedido.</strong>
+        <span id="noticeRelaxedDetail"></span>
+      </div>
+      <div class="notice notice--warn" id="noticeInvalid" hidden>
+        <strong>Citação inexistente na resposta.</strong>
+        <span id="noticeInvalidDetail"></span>
+      </div>
+
+      <article class="prose" id="answerBody"></article>
+    </div>
+
+    <aside class="evidence">
+      <h2 class="evidence__title">
+        Regras recuperadas
+        <span class="evidence__count" id="evidenceCount"></span>
+      </h2>
+      <ol class="cards" id="cards"></ol>
+    </aside>
+
+  </section>
+</main>
+
+<footer class="desk-foot">
+  <p>
+    Demonstração de RAG sobre regras de detecção públicas.
+    Recall@5 de 97% em 30 perguntas de resposta conhecida — método e números em
+    <code>eval/results.md</code>.
+  </p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

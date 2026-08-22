@@ -1,0 +1,620 @@
+/* Mesa de referência — folha de estilo.
+
+   Conceito: uma mesa de referência, não uma conversa. O acervo são 5.664
+   regras catalogadas com identificador estável e link verificável, e é isso
+   que a interface encena — cada regra é uma ficha de catálogo, com a lógica de
+   detecção mostrada como ela é escrita na fonte.
+
+   Elemento de assinatura: o selo de ancoragem (`.seal`). É o único lugar onde
+   a página gasta ousadia. Ele reporta a verificação de citação feita em
+   código, que é a tese do projeto — o resto fica disciplinado de propósito.
+
+   Paleta (6 cores nomeadas):
+     papel      #ECEFF3  fundo, papel técnico frio
+     carta      #FFFFFF  superfície das fichas
+     tinta      #131C26  texto principal
+     grafite    #5C6B7A  texto secundário e réguas
+     verificado #1E6F5C  verde-pinho: aparelhagem de citação (o accent)
+     ressalva   #9A6B12  ocre: avisos que o analista precisa ver
+*/
+
+:root {
+  --papel: #eceff3;
+  --carta: #ffffff;
+  --tinta: #131c26;
+  --grafite: #5c6b7a;
+  --verificado: #1e6f5c;
+  --ressalva: #9a6b12;
+
+  --regua: #d3dae1;
+  --regua-forte: #b9c4ce;
+  --verificado-fraco: #e4efeb;
+  --ressalva-fraco: #f7efdd;
+
+  --display: "Space Grotesk", "Segoe UI", sans-serif;
+  --corpo: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+
+  --passo: 4px;
+  --max: 1240px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --papel: #10171e;
+    --carta: #161f28;
+    --tinta: #e6ecf1;
+    --grafite: #9aa9b6;
+    --verificado: #63c7a6;
+    --ressalva: #d9a441;
+
+    --regua: #2a3742;
+    --regua-forte: #3b4a57;
+    --verificado-fraco: #16302a;
+    --ressalva-fraco: #2f2717;
+  }
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* O atributo `hidden` precisa vencer qualquer `display` autoral.
+   Sem isto, `.result { display: grid }` mantinha a seção de resultado visível
+   com `hidden` presente — a página abria mostrando um selo vazio. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--papel);
+  color: var(--tinta);
+  font-family: var(--corpo);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Piso de qualidade: foco de teclado sempre visível, em qualquer elemento. */
+:focus-visible {
+  outline: 2px solid var(--verificado);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+button { font: inherit; cursor: pointer; }
+
+/* ---------------------------------------------------------------- cabeçalho */
+
+.desk-head {
+  border-bottom: 1px solid var(--regua-forte);
+  background: var(--carta);
+}
+
+.desk-head__inner {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: calc(var(--passo) * 6) calc(var(--passo) * 6);
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 6);
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.desk-head__mark { display: flex; gap: calc(var(--passo) * 4); align-items: center; }
+
+.mark__glyph {
+  font-family: var(--display);
+  font-size: 40px;
+  line-height: 1;
+  color: var(--verificado);
+  border: 1px solid var(--regua-forte);
+  border-radius: 2px;
+  padding: calc(var(--passo) * 2) calc(var(--passo) * 3);
+}
+
+.desk-head h1 {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.desk-head__sub {
+  margin: 2px 0 0;
+  color: var(--grafite);
+  font-size: 13px;
+}
+
+.desk-head__stats {
+  display: flex;
+  gap: calc(var(--passo) * 7);
+  margin: 0;
+}
+
+.desk-head__stats dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grafite);
+}
+
+.desk-head__stats dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+/* ------------------------------------------------------------------ consulta */
+
+.desk {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: calc(var(--passo) * 8) calc(var(--passo) * 6) calc(var(--passo) * 12);
+}
+
+.ask__label {
+  display: block;
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: calc(var(--passo) * 2);
+}
+
+.ask__row { display: flex; gap: calc(var(--passo) * 2); }
+
+.ask__input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: calc(var(--passo) * 3) calc(var(--passo) * 4);
+  color: var(--tinta);
+  background: var(--carta);
+  border: 1px solid var(--regua-forte);
+  border-radius: 2px;
+}
+
+.ask__input::placeholder { color: var(--grafite); }
+
+.ask__submit {
+  padding: calc(var(--passo) * 3) calc(var(--passo) * 6);
+  font-family: var(--display);
+  font-weight: 500;
+  color: var(--carta);
+  background: var(--verificado);
+  border: 1px solid var(--verificado);
+  border-radius: 2px;
+}
+
+.ask__submit:hover:not(:disabled) { filter: brightness(1.08); }
+.ask__submit:disabled { opacity: 0.55; cursor: progress; }
+
+.ask__hint {
+  margin: calc(var(--passo) * 2) 0 0;
+  font-size: 13px;
+  color: var(--grafite);
+  max-width: 62ch;
+}
+
+.ask__examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 2);
+  list-style: none;
+  padding: 0;
+  margin: calc(var(--passo) * 3) 0 0;
+}
+
+.ask__examples button {
+  padding: calc(var(--passo) * 1) calc(var(--passo) * 3);
+  font-size: 13px;
+  color: var(--grafite);
+  background: transparent;
+  border: 1px dashed var(--regua-forte);
+  border-radius: 2px;
+}
+
+.ask__examples button:hover {
+  color: var(--verificado);
+  border-color: var(--verificado);
+  border-style: solid;
+}
+
+/* -------------------------------------------------------------------- estado */
+
+.state {
+  margin-top: calc(var(--passo) * 10);
+  padding-top: calc(var(--passo) * 8);
+  border-top: 1px solid var(--regua);
+}
+
+.state__lead {
+  font-family: var(--display);
+  font-size: 19px;
+  margin: 0 0 calc(var(--passo) * 6);
+  max-width: 46ch;
+}
+
+.state__how {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: calc(var(--passo) * 4);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.state__how li {
+  display: flex;
+  gap: calc(var(--passo) * 3);
+  font-size: 14px;
+  color: var(--grafite);
+  max-width: 40ch;
+}
+
+.state__how span {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--verificado);
+  border: 1px solid var(--regua-forte);
+  border-radius: 50%;
+}
+
+.state--busy p,
+.state--error p { margin: 0; }
+.state--busy p { color: var(--grafite); }
+.state--error h2 { font-family: var(--display); font-size: 17px; margin: 0 0 4px; }
+.state--error { color: var(--ressalva); }
+
+/* ------------------------------------------------------------------ resultado */
+
+.result {
+  margin-top: calc(var(--passo) * 10);
+  padding-top: calc(var(--passo) * 8);
+  border-top: 1px solid var(--regua);
+  display: grid;
+  gap: calc(var(--passo) * 10);
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .result { grid-template-columns: minmax(0, 1fr); }
+}
+
+.answer__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 4);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: calc(var(--passo) * 6);
+}
+
+.answer__meta {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--grafite);
+}
+
+/* ============ ELEMENTO DE ASSINATURA: o selo de ancoragem ============
+   A única ousadia da página. Não é enfeite: reporta se toda citação da
+   resposta aponta para uma regra que realmente foi recuperada — verificação
+   feita em código, depois da geração. */
+
+.seal {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--passo) * 3);
+  padding: calc(var(--passo) * 2) calc(var(--passo) * 4) calc(var(--passo) * 2) calc(var(--passo) * 2);
+  border: 1px solid var(--verificado);
+  border-radius: 2px;
+  background: var(--verificado-fraco);
+}
+
+.seal__ring {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--verificado);
+  position: relative;
+}
+
+/* A marca dentro do selo é desenhada, não é ícone importado: um tique. */
+.seal__ring::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  width: 8px;
+  height: 14px;
+  border: solid var(--verificado);
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+
+.seal__text strong {
+  display: block;
+  font-family: var(--display);
+  font-size: 14px;
+  color: var(--verificado);
+  letter-spacing: -0.005em;
+}
+
+.seal__text span {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--grafite);
+}
+
+/* Estado de falha do selo: mesma forma, leitura oposta. */
+.seal--broken { border-color: var(--ressalva); background: var(--ressalva-fraco); }
+.seal--broken .seal__ring { border-color: var(--ressalva); }
+.seal--broken .seal__ring::after {
+  left: 15px;
+  top: 7px;
+  width: 2px;
+  height: 16px;
+  border-width: 0 2px 0 0;
+  border-color: var(--ressalva);
+  transform: none;
+}
+.seal--broken .seal__text strong { color: var(--ressalva); }
+
+/* ---------------------------------------------------------------- avisos */
+
+.notice {
+  padding: calc(var(--passo) * 3) calc(var(--passo) * 4);
+  margin-bottom: calc(var(--passo) * 5);
+  border-left: 3px solid var(--ressalva);
+  background: var(--ressalva-fraco);
+  font-size: 14px;
+}
+
+.notice strong { display: block; color: var(--ressalva); font-size: 13.5px; }
+.notice span { color: var(--grafite); }
+
+/* ------------------------------------------------------------------- prosa */
+
+.prose { font-size: 15.5px; }
+.prose > :first-child { margin-top: 0; }
+
+.prose h2,
+.prose h3 {
+  font-family: var(--display);
+  font-size: 16px;
+  font-weight: 500;
+  margin: calc(var(--passo) * 7) 0 calc(var(--passo) * 2);
+}
+
+.prose p { margin: 0 0 calc(var(--passo) * 4); max-width: 68ch; }
+.prose ul, .prose ol { margin: 0 0 calc(var(--passo) * 4); padding-left: 1.3em; max-width: 66ch; }
+.prose li { margin-bottom: calc(var(--passo) * 1); }
+.prose strong { font-weight: 600; }
+
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  padding: 1px 4px;
+  background: var(--papel);
+  border: 1px solid var(--regua);
+  border-radius: 2px;
+}
+
+.prose pre {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 0 0 calc(var(--passo) * 5);
+  padding: calc(var(--passo) * 4);
+  background: var(--carta);
+  border: 1px solid var(--regua);
+  border-left: 3px solid var(--regua-forte);
+  border-radius: 2px;
+  overflow-x: auto;  /* conteúdo largo rola dentro do bloco, não na página */
+}
+
+.prose pre code { padding: 0; background: none; border: none; }
+
+/* O marcador de citação: instrumento visível do selo. Liga texto e ficha. */
+.cite {
+  font-family: var(--mono);
+  font-size: 0.82em;
+  font-weight: 500;
+  color: var(--verificado);
+  background: var(--verificado-fraco);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 0 3px;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.cite:hover,
+.cite.is-active { border-color: var(--verificado); }
+
+.cite--invalid { color: var(--ressalva); background: var(--ressalva-fraco); cursor: not-allowed; }
+
+/* --------------------------------------------------------------- evidências */
+
+.evidence__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--passo) * 3);
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--grafite);
+  margin: 0 0 calc(var(--passo) * 4);
+  padding-bottom: calc(var(--passo) * 2);
+  border-bottom: 1px solid var(--regua-forte);
+}
+
+.evidence__count { font-family: var(--mono); letter-spacing: 0; text-transform: none; }
+
+.cards { list-style: none; margin: 0; padding: 0; display: grid; gap: calc(var(--passo) * 4); }
+
+/* Ficha de catálogo: documento regrado, sem sombra e sem canto arredondado —
+   o reflexo seria o card de dashboard, que é o oposto do que o acervo é. */
+.card {
+  background: var(--carta);
+  border: 1px solid var(--regua);
+  border-left: 3px solid var(--regua-forte);
+  border-radius: 2px;
+  padding: calc(var(--passo) * 4);
+}
+
+.card.is-cited { border-left-color: var(--verificado); }
+.card.is-active { border-color: var(--verificado); }
+
+.card__top {
+  display: flex;
+  gap: calc(var(--passo) * 3);
+  align-items: baseline;
+  margin-bottom: calc(var(--passo) * 2);
+}
+
+.card__index {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--grafite);
+  border: 1px solid var(--regua-forte);
+  border-radius: 2px;
+  padding: 0 5px;
+}
+
+.card.is-cited .card__index { color: var(--verificado); border-color: var(--verificado); }
+
+.card__title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.card__uid {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--grafite);
+  word-break: break-all;
+  margin: 0 0 calc(var(--passo) * 3);
+}
+
+.card__uid a { color: inherit; }
+.card__uid a:hover { color: var(--verificado); }
+
+.tags { display: flex; flex-wrap: wrap; gap: calc(var(--passo) * 1.5); margin-bottom: calc(var(--passo) * 3); }
+
+.tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  color: var(--grafite);
+  border: 1px solid var(--regua);
+  border-radius: 2px;
+}
+
+.tag--attack { color: var(--tinta); border-color: var(--regua-forte); }
+
+/* Régua de proveniência: de onde a regra veio e quão perto ficou. */
+.prov {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 3);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--grafite);
+  padding-top: calc(var(--passo) * 3);
+  border-top: 1px dashed var(--regua);
+}
+
+.prov__meter {
+  flex: 1;
+  min-width: 70px;
+  height: 3px;
+  background: var(--regua);
+  border-radius: 0;
+  position: relative;
+}
+
+.prov__meter span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--verificado);
+}
+
+.card__logic { margin-top: calc(var(--passo) * 3); }
+
+.card__logic summary {
+  font-family: var(--display);
+  font-size: 12.5px;
+  color: var(--grafite);
+  cursor: pointer;
+  padding: calc(var(--passo) * 1) 0;
+}
+
+.card__logic summary:hover { color: var(--verificado); }
+
+.card__logic pre {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  margin: calc(var(--passo) * 2) 0 0;
+  padding: calc(var(--passo) * 3);
+  background: var(--papel);
+  border: 1px solid var(--regua);
+  border-radius: 2px;
+  overflow-x: auto;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.card__cut { font-size: 11px; color: var(--ressalva); margin: calc(var(--passo) * 2) 0 0; }
+
+/* ------------------------------------------------------------------- rodapé */
+
+.desk-foot {
+  border-top: 1px solid var(--regua);
+  margin-top: calc(var(--passo) * 12);
+}
+
+.desk-foot p {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: calc(var(--passo) * 6);
+  font-size: 12.5px;
+  color: var(--grafite);
+}
+
+.desk-foot code { font-family: var(--mono); font-size: 12px; }
+
+/* Piso de qualidade: nada se move para quem pediu menos movimento. */
+@media (prefers-reduced-motion: no-preference) {
+  .result { animation: surgir 220ms ease-out; }
+  @keyframes surgir {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+  .cite, .card, .ask__submit { transition: border-color 120ms ease, color 120ms ease; }
+}
+
+@media (max-width: 620px) {
+  .desk-head__inner, .desk { padding-left: calc(var(--passo) * 4); padding-right: calc(var(--passo) * 4); }
+  .desk-head__stats { gap: calc(var(--passo) * 5); }
+  .ask__row { flex-direction: column; }
+  .ask__submit { width: 100%; }
+}

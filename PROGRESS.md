@@ -1,7 +1,7 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 6 concluída — Fase 7 (Frontend e demo) é o próximo passo
+- Fase atual: Fase 7 concluída — Fase 8 (Documentação final) é o próximo passo
 - Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
@@ -261,6 +261,33 @@
   qualquer `k`. A varredura só faz sentido com a perna de full-text ligada, e é
   assim que `run_eval.py --sweep` a executa.
 
+- **`POSTGRES_HOST=127.0.0.1`, nunca `localhost` (Fase 7)** — no Windows,
+  `localhost` resolve para `::1` antes de `127.0.0.1` e o Docker publica a
+  porta só em IPv4. O libpq espera o timeout de TCP no IPv6 antes de cair para
+  IPv4, **a cada conexão**. Medido: 30,056 s contra 0,017 s. Todo script deste
+  projeto vinha pagando esses 30 segundos desde a Fase 3 sem que ninguém
+  notasse, porque em script isso parece "está processando"; na API, em que cada
+  requisição abre uma conexão, virou travamento.
+- **`store.connect` ganhou `connect_timeout` de 8 s** — o default do libpq é
+  ~30 s, e 30 s de espera silenciosa é indistinguível de travamento para quem
+  está usando. Com teto curto, configuração errada falha com mensagem.
+- **`CREATE EXTENSION` saiu de `connect` e virou `ensure_extension`**, chamado
+  só pelo caminho de indexação. Rodar DDL em toda conexão era desperdício num
+  script e pegava lock em `pg_extension` a cada requisição da API. Criar
+  extensão é preparo de ambiente, não operação de leitura.
+- **Uma conexão por requisição na API, não uma compartilhada** — endpoints
+  síncronos do FastAPI rodam num pool de threads e uma conexão psycopg não é
+  thread-safe. Compartilhá-la produziria erro intermitente sob concorrência,
+  que é a pior categoria de defeito para uma demonstração.
+- **Provedores resolvidos no arranque da aplicação, não na primeira pergunta**
+  — se a chave falta ou o `EMBEDDING_PROVIDER` é inválido, a aplicação falha ao
+  subir com a mensagem da camada de provedores.
+- **A interface é servida pela própria aplicação FastAPI, sem passo de build** —
+  o critério de aceite da fase é alguém de fora rodar sem contexto adicional.
+  HTML, CSS e JS estáticos, sem framework e sem CDN de biblioteca (só as fontes
+  do Google Fonts). O renderizador de markdown é ~60 linhas escritas aqui e
+  escapa HTML antes de qualquer coisa, porque o texto vem de um LLM.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -313,24 +340,28 @@
 - 181 das 5.664 regras ficaram sem nenhuma plataforma normalizada e 458 sem
   técnica ATT&CK. É esperado (nem toda regra declara), mas vale revisitar na
   Fase 6 se a avaliação mostrar que o filtro por metadado está perdendo regra.
+- **A responsividade em largura de celular não foi confirmada visualmente.** Os
+  pontos de quebra existem (900 px e 620 px) e há teste garantindo que estão na
+  folha de estilo, mas a ferramenta de navegador reportou sucesso no
+  redimensionamento sem que a captura refletisse a mudança. Vale abrir a página
+  num celular de verdade antes de considerar isso verificado.
+- **`--reload` do uvicorn não foi testado.** A demo foi validada com o servidor
+  em modo normal.
 
 ## Próximos passos
-- Fase 7: API FastAPI expondo o pipeline (`src/api/`) e a interface de demo
-  (`src/frontend/`).
-- **Ler a skill de frontend-design da Anthropic antes de desenhar qualquer
-  tela** — é exigência explícita do `CLAUDE.md` (seção 4), com processo de duas
-  passadas: plano de design compacto (paleta de 4–6 cores nomeadas, tipografia
-  com papéis, conceito de layout, um elemento de assinatura), crítica desse
-  plano, e só então implementação.
-- A interface tem material próprio para mostrar, e vale usá-lo em vez de virar
-  mais um chat genérico: `RetrievedRule.matched_by` e `.ranks` explicam por que
-  cada regra apareceu, `citation_check` distingue resposta ancorada de resposta
-  solta, e `relaxed_filters` avisa que não existe regra para o termo pedido.
-- Critério de aceite: alguém de fora consegue rodar e testar sem contexto
-  adicional, e a interface não parece um template genérico de dashboard.
-- Fase 8: README com as decisões de arquitetura e os resultados da avaliação,
-  registrando que os números de `eval/results.md` foram obtidos com
-  `text-embedding-3-small` (exigência do `CLAUDE.md`, seção 3).
+- Fase 8: expandir o README com as decisões de arquitetura. O caminho de
+  execução já está lá (exigência do aceite da Fase 7); falta a parte que
+  explica *por que* cada peça é como é.
+- Material que já existe e vale puxar para o README, em vez de reescrever: a
+  revisão da Fase 4 pela medição da Fase 6 (a busca híbrida ingênua era pior
+  que a vetorial pura), a razão de `text-embedding-3-small` e não `3-large`
+  (limite de 2.000 dimensões dos índices do pgvector), e a verificação de
+  citação em código como resposta ao "nunca uma resposta inventada".
+- Registrar no README que os números de `eval/results.md` saíram de
+  `text-embedding-3-small` — já feito na Fase 7, confirmar que basta.
+- Duas pendências herdadas que valem uma linha no README como limitações
+  conhecidas: q09 ainda falha no conjunto de avaliação, e o conjunto tem ponto
+  cego para termo que só existe na lógica de detecção.
 
 ## Histórico de sessões
 
@@ -648,3 +679,67 @@ acabou sendo pela configuração de melhor MRR, que também é a mais simples.
 
 **Estado em que a sessão foi deixada:** `pytest` verde (156 testes),
 `eval/results.md` gerado, commit da Fase 6 feito. Nada da Fase 7 escrito.
+
+### 2026-08-22 — Sessão 8 (Claude Code)
+
+**Fase 7 concluída.**
+
+**Processo de design seguido como o `CLAUDE.md` (seção 4) exige.** A skill de
+frontend-design não estava disponível localmente, então foi buscada na URL. O
+processo de duas passadas foi cumprido:
+
+*Passada 1 — plano.* Conceito: **mesa de referência, não conversa**. O acervo
+são 5.664 regras catalogadas com identificador estável e link verificável, e o
+produto é a citação — o analista quer a regra, não a paráfrase. Paleta de 6
+cores nomeadas (`papel`, `carta`, `tinta`, `grafite`, `verificado`,
+`ressalva`), com o verde-pinho reservado à aparelhagem de citação. Três papéis
+tipográficos: Space Grotesk (display), IBM Plex Sans (corpo), IBM Plex Mono (as
+queries — face desenhada para isso). Elemento de assinatura: **o selo de
+ancoragem**, que estampa o resultado da verificação de citação feita em código.
+
+*Passada 2 — crítica.* Contra os três anti-padrões nomeados pela skill: não é
+creme + serifada + terracota, não é quase-preto + neon, e o risco real
+identificado foi a "ficha de catálogo" virar card genérico de dashboard —
+mitigado tratando-a como documento regrado, sem sombra e sem canto arredondado,
+com a query real em mono. O verde como accent é escolha incomum (o reflexo
+seria azul ou terracota) e vem do domínio: verificação.
+
+**O que foi entregue:**
+- `src/api/`: `main.py` (endpoints `/api/ask`, `/api/health`, e a interface
+  servida na raiz) e `schemas.py`.
+- `src/frontend/`: `index.html`, `styles.css`, `app.js` — sem framework, sem
+  CDN de biblioteca, sem passo de build.
+- README com o caminho completo de execução, do clone à demo.
+- 17 testes novos em `tests/test_api.py`. Metade cobre um risco específico da
+  entrega: a página é estática, sem compilador, então um `id` renomeado no HTML
+  e não no JS quebraria só no navegador de quem for avaliar. Há teste cruzando
+  os dois arquivos, e testes travando o piso de qualidade (foco visível,
+  `prefers-reduced-motion`, quebra mobile, tema escuro) e a paleta planejada.
+  173 no total, todos verdes.
+
+**Dois defeitos encontrados rodando, não lendo:**
+
+1. **O achado maior da sessão, e ele é antigo:** a API travava. A investigação
+  passou por hipóteses erradas (lock de `CREATE EXTENSION`, thread-safety do
+  psycopg) até um teste isolado mostrar que `psycopg.connect` levava **30
+  segundos até na thread principal**. Causa: `localhost` resolve para `::1`
+  primeiro no Windows e o Docker publica só em IPv4. Medido: 30,056 s contra
+  0,017 s com `127.0.0.1`. Isso vinha desde a Fase 3 — a indexação de 90 s e
+  todas as execuções da avaliação pagaram esse pedágio sem que aparecesse,
+  porque em script 30 s parecem trabalho. Só a API, que abre conexão por
+  requisição, expôs o problema.
+2. **A seção de resultado aparecia com o atributo `hidden` presente**, porque
+  `.result { display: grid }` vence o `display: none` que o navegador aplica
+  via `[hidden]`. A página abria mostrando um selo de ancoragem vazio.
+  Corrigido com `[hidden] { display: none !important }` e um teste de
+  regressão.
+
+**Verificado no navegador:** estado inicial, consulta real ("tem regra pra
+T1055 no Windows?"), selo lendo "Resposta ancorada · 5 de 5 regras citadas · 0
+citações inválidas", marcadores `[n]` ligados às fichas, régua de proveniência
+("cosseno 0.465 · vetorial") e a lógica de detecção em bloco recolhível. O que
+**não** foi verificado está em Pendências.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (173 testes),
+`uvicorn src.api.main:app` sobe e serve a demo, commit da Fase 7 feito. Nada da
+Fase 8 escrito além do caminho de execução no README.
