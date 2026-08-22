@@ -1,7 +1,7 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: Fase 7 concluída — Fase 8 (Documentação final) é o próximo passo
+- Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo**
 - Última atualização: 2026-08-22
 
 ## Decisões de arquitetura
@@ -349,19 +349,21 @@
   em modo normal.
 
 ## Próximos passos
-- Fase 8: expandir o README com as decisões de arquitetura. O caminho de
-  execução já está lá (exigência do aceite da Fase 7); falta a parte que
-  explica *por que* cada peça é como é.
-- Material que já existe e vale puxar para o README, em vez de reescrever: a
-  revisão da Fase 4 pela medição da Fase 6 (a busca híbrida ingênua era pior
-  que a vetorial pura), a razão de `text-embedding-3-small` e não `3-large`
-  (limite de 2.000 dimensões dos índices do pgvector), e a verificação de
-  citação em código como resposta ao "nunca uma resposta inventada".
-- Registrar no README que os números de `eval/results.md` saíram de
-  `text-embedding-3-small` — já feito na Fase 7, confirmar que basta.
-- Duas pendências herdadas que valem uma linha no README como limitações
-  conhecidas: q09 ainda falha no conjunto de avaliação, e o conjunto tem ponto
-  cego para termo que só existe na lógica de detecção.
+
+O roadmap das Fases 0 a 8 está completo. O que segue é melhoria, não entrega
+pendente — em ordem de retorno pelo esforço:
+
+- **Fechar as duas pendências de verificação** (baratas): abrir a interface num
+  celular de verdade e rodar a demo com `uvicorn --reload`.
+- **Ampliar o conjunto de avaliação para cobrir o ponto cego conhecido** —
+  perguntas por termo que só existe na lógica de detecção. É o que decidiria em
+  definitivo se a perna de full-text merece voltar a ser ligada, já que a
+  coluna passou a indexar a query bruta na Fase 6.
+- **Investigar q09**, a única falha remanescente do conjunto.
+- **Sintonizar `top_k` e o multiplicador do pool**, hoje em padrões não
+  medidos. Com recall@5 de 97% há pouco a ganhar, mas o harness já suporta.
+- **Atualizar o pin de `anthropic` (0.40.0)** se em algum momento `thinking`
+  adaptativo ou `output_config.effort` passarem a fazer diferença na resposta.
 
 ## Histórico de sessões
 
@@ -743,3 +745,36 @@ citações inválidas", marcadores `[n]` ligados às fichas, régua de proveniê
 **Estado em que a sessão foi deixada:** `pytest` verde (173 testes),
 `uvicorn src.api.main:app` sobe e serve a demo, commit da Fase 7 feito. Nada da
 Fase 8 escrito além do caminho de execução no README.
+
+### 2026-08-22 — Sessão 9 (Claude Code)
+
+**Fase 8 concluída. O roadmap do `CLAUDE.md` está completo (Fases 0 a 8).**
+
+O README foi reescrito como porta de entrada do portfólio, com a divisão de
+propósito que o `CLAUDE.md` (seção 8) exige: README para humanos avaliando o
+projeto, `PROGRESS.md` para continuidade entre sessões. O README não repete o
+histórico — aponta para ele.
+
+**Estrutura do README:** pitch com os números de cabeça, diagrama do pipeline,
+caminho de execução completo, sete decisões de arquitetura com o *porquê*,
+avaliação com método e limitações, limitações conhecidas, stack e estrutura do
+repositório.
+
+**A seção que mais importa** é a 5, sobre a busca híbrida: ela conta que a
+avaliação contradisse o desenho original, mostra a tabela de ablação e explica
+o que sobreviveu (o filtro ATT&CK) e o que caiu (inferência de plataforma e
+perna lexical). Documentar a revisão em vez de apresentar só o resultado final
+é o que torna o número confiável — e é o oposto de um README que só mostra o
+que deu certo.
+
+**Verificação das afirmações:** um script conferiu que as métricas do README
+batem com `eval/results.md`, que a contagem de regras bate com
+`data/normalized/rules.jsonl`, que o conjunto tem as 30 perguntas anunciadas e
+que todos os links internos apontam para arquivos existentes. As limitações
+conhecidas foram transcritas de Pendências, incluindo as que não são
+lisonjeiras (q09 falhando, ponto cego do conjunto de avaliação,
+responsividade não confirmada em tela pequena).
+
+**Estado em que a sessão foi deixada:** `pytest` verde (173 testes), pipeline
+completo funcionando de ponta a ponta, README final, commit da Fase 8 feito.
+Projeto entregue conforme o brief.

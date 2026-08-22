@@ -1,28 +1,52 @@
 # Assistente de Detecção com RAG
 
-Ferramenta de portfólio que indexa regras de detecção públicas (SigmaHQ,
-Splunk ESCU, YARA-L da comunidade Google SecOps) e responde perguntas de
-analistas de segurança citando a regra exata usada como fonte.
+Indexa **5.664 regras de detecção públicas** (SigmaHQ, Splunk ESCU, YARA-L da
+comunidade Google SecOps) e responde perguntas de analistas de segurança
+citando a regra exata usada como fonte.
 
-> Projeto em desenvolvimento. A documentação das decisões de arquitetura será
-> expandida na Fase 8. Para o plano completo, ver [`CLAUDE.md`](./CLAUDE.md);
-> para o histórico de decisões, ver [`PROGRESS.md`](./PROGRESS.md).
-
-## Status
-
-Pipeline completo funcionando: ingestão → chunking → embeddings → busca
-híbrida → resposta citada → interface de demonstração.
+A promessa central — *nunca uma resposta inventada* — não é feita por prompt.
+Cada citação da resposta é conferida **em código** contra as regras que o
+retrieval realmente devolveu, e o resultado dessa conferência aparece na
+interface.
 
 | | |
 |---|---|
 | Regras indexadas | **5.664** (Sigma 3.141, ESCU 2.144, YARA-L 379) |
 | Recall@5 do retrieval | **97%** em 30 perguntas de resposta conhecida |
+| MRR | **0,879** |
 | Respostas ancoradas | **30/30**, com 0 citações inexistentes |
-| Método e números | [`eval/results.md`](./eval/results.md) |
+| Método e números completos | [`eval/results.md`](./eval/results.md) |
 
-Os números de retrieval foram obtidos com `text-embedding-3-small` da OpenAI
-(1536 dimensões) e a geração com `claude-opus-5`. Resultados variam entre
-modelos de embedding — trocar o provedor exige reindexar.
+Os números saíram de `text-embedding-3-small` (OpenAI, 1536 dimensões) para o
+embedding e `claude-opus-5` para a geração. Resultados de retrieval variam
+entre modelos de embedding; trocar o provedor exige reindexar.
+
+---
+
+## Como funciona
+
+```
+pergunta em linguagem natural
+      │
+      ├─ técnica ATT&CK citada? ──► filtro rígido na coluna de metadado
+      │                              (T1055 casa T1055 e T1055.*)
+      │
+      └─ pergunta inteira ──────► embedding ──► similaridade de cosseno
+                                                 (HNSW no pgvector)
+                                                        │
+                                        top-k regras recuperadas
+                                                        │
+                    prompt com as regras numeradas [1]…[n], nada mais
+                                                        │
+                                              resposta gerada
+                                                        │
+                    ✔ verificação: todo [n] citado existe no contexto?
+```
+
+O detalhe que distingue este projeto de uma demo genérica de RAG está na
+última linha. As demais decisões estão abaixo.
+
+---
 
 ## Rodando localmente
 
@@ -138,11 +162,239 @@ pytest -m "not integration" # só o que não precisa de banco nem de chave
 Os testes marcados como `integration` exigem o Postgres no ar, o corpus
 indexado e uma chave válida; sem isso são pulados automaticamente.
 
+---
+
+## Decisões de arquitetura
+
+### 1. A query de detecção não vira vetor
+
+Uma regra tem duas metades com naturezas opostas: campos narrativos (título,
+descrição, falsos positivos) e a lógica de detecção (`EventID=1`, `| tstats`,
+`$e.metadata.event_type`). Só a primeira é embeddada.
+
+Sintaxe de linguagem de busca domina o vetor com tokens que ninguém digita numa
+pergunta em linguagem natural. A query vai junto no chunk, **literal**, como
+contexto para a resposta — o analista quer ver a regra, não uma paráfrase dela.
+
+A separação acontece já no schema de ingestão, não na camada de chunking. Isso
+mantém o parsing dos três formatos em um lugar só: a Fase de chunking lida com
+texto, não com YAML e YARA-L.
+
+### 2. Um chunk por regra, decidido medindo
+
+O texto narrativo mais longo das 5.664 regras tem 1.897 caracteres, com p99 em
+1.455. Nenhuma chega perto do tamanho em que dividir compensaria, e dividir
+criaria chunks irmãos competindo pelo mesmo top-k e uma citação ambígua ("qual
+pedaço da regra?").
+
+`chunk_index` e `chunk_total` existem no contrato mesmo valendo sempre 0 e 1:
+se a avaliação mostrar perda de recall em descrições longas, dividir passa a
+ser mudança de código e não migração de banco.
+
+A query preservada tem teto de 4.000 caracteres. A distribuição é concentrada
+(p90 = 1.268), mas a cauda é extrema: a regra *Vulnerable Driver Load* do Sigma
+tem **250 KB** de query, quase tudo lista de hash do LOLDrivers. Sem teto, uma
+única regra recuperada estoura o contexto do prompt. O corte atinge 41 das
+5.664 regras, cai numa fronteira de linha (meia condição parece completa e
+engana quem lê) e liga uma flag que a resposta usa para remeter à fonte.
+
+### 3. `text-embedding-3-small`, e o motivo não é custo
+
+Os índices HNSW e IVFFlat do pgvector aceitam no máximo **2.000 dimensões**. O
+`text-embedding-3-large` produz 3.072: a busca vetorial cairia em varredura
+sequencial sobre o corpus inteiro, ou exigiria migrar a coluna para `halfvec` e
+aceitar a perda de precisão. O `3-small` tem 1.536 e cabe.
+
+Há uma guarda que recusa qualquer modelo acima do limite **antes** de gastar
+chamada de API, e um teste que trava o padrão como indexável.
+
+### 4. A camada de provedores, e o teste que a defende
+
+`LLM_PROVIDER` e `EMBEDDING_PROVIDER` são variáveis independentes de propósito:
+a Anthropic não expõe API de embeddings própria, então "gerar com um provedor e
+embeddar com outro" é o caso normal, não a exceção. A configuração padrão deste
+projeto é exatamente essa.
+
+Não existe `EMBEDDING_PROVIDER=anthropic`. Cogitei implementá-lo chamando a
+Voyage AI por baixo e descartei: o nome mentiria sobre qual serviço recebe o
+texto e qual chave é cobrada. A Voyage entrou como provedor de primeira classe,
+e `anthropic` levanta um erro que explica o porquê e aponta as duas saídas.
+
+O requisito de não depender de um SDK específico fora dessa camada é
+**verificado, não confiado**: um teste varre `src/` e falha se encontrar
+`import openai`, `import anthropic` ou `import voyageai` fora de
+`src/providers/`. Sem ele, a regra sobrevive só enquanto alguém lembrar dela.
+
+### 5. A busca híbrida, e o que a avaliação desmentiu
+
+Esta é a decisão mais interessante do projeto, porque a medição contradisse o
+desenho original.
+
+A intuição era combinar três sinais: filtro por metadado, similaridade vetorial
+e busca full-text, fundidos por Reciprocal Rank Fusion. Uma medição pontual
+parecia confirmar: para a pergunta "T1055", a busca vetorial pura devolvia 0 de
+5 regras corretas e a híbrida, 5 de 5.
+
+A avaliação sistemática mostrou que o ganho vinha de **uma** das três peças, e
+que as outras duas atrapalhavam:
+
+| Configuração | recall@5 | MRR |
+|---|---:|---:|
+| **Padrão hoje**: filtro ATT&CK + vetorial | **97%** | **0,879** |
+| Vetorial pura, sem filtro (linha de base) | 97% | 0,846 |
+| + perna de full-text | 93% | 0,786 |
+| + inferência de plataforma | 87% | 0,796 |
+| + ambas (a híbrida original) | 83% | 0,724 |
+
+**A inferência de plataforma excluía a resposta certa.** A função que mapeia
+texto para plataforma foi escrita para telemetria (`Sysmon EventID 1` ⇒
+windows), não para frase corrente, e aplicada a perguntas dispara demais:
+"endereço de e-mail" virava filtro `email` numa regra marcada como `web`;
+"logs web" virava `web` numa regra `network`; "Google Workspace" virava `gcp`
+numa regra **sem plataforma declarada** — e 181 regras estão nesse caso, então
+qualquer filtro de plataforma as elimina. Filtro explícito, vindo de uma faceta
+de interface, continua valendo: quem escolhe "windows" num menu quis dizer
+isso; quem escreveu "logs web" numa frase, não.
+
+**A perna de full-text era redundante por construção.** A coluna indexada era o
+mesmo texto que o vetor já cobria — as duas pernas olhavam para a mesma coisa,
+e a lexical só somava ruído de OR. Foram medidas quatro variantes (peso
+reduzido, só identificadores, indexando também a query bruta) e nenhuma superou
+simplesmente não usá-la.
+
+**O que sobreviveu** é o filtro ATT&CK, que dá o ganho real sobre a vetorial
+pura (MRR 0,879 contra 0,846) e expande nos dois sentidos: `T1055` casa suas
+subtécnicas, `T1218.011` casa também o pai. Isso importa porque o full-text do
+Postgres tokeniza `T1055.001` como termo único, então uma busca por `T1055`
+nunca o alcançaria por via lexical.
+
+A perna de full-text segue implementada e ativável por parâmetro, e a coluna
+passou a indexar a query bruta — o único material que o embedding não vê. O
+conjunto de avaliação atual não cobre esse caso, então a decisão de mantê-la
+desligada vale enquanto for essa a evidência.
+
+### 6. "Nunca inventa" é verificado, não prometido
+
+O prompt do sistema proíbe responder fora do contexto e exige citação. Isso é
+um pedido, não uma garantia: nada impede um modelo escrever `[7]` com cinco
+regras no contexto.
+
+Depois da geração, `check_citations` extrai os índices citados e confere cada
+um contra as regras recuperadas. O resultado — quantas citadas, quais
+inválidas, se a resposta não citou nada — vai no payload da API e aparece na
+interface como o selo de ancoragem. É o que transforma *"pedimos para citar
+certo"* em *"sabemos se citou"*.
+
+Três decisões de apoio:
+
+- **As regras entram numeradas (`[1]`, `[2]`), não pelo `rule_uid`.** Pedir que
+  o modelo repita `sigma:ec570e53-4c76-45a9-804d-dc3f355ff7a7` no meio do texto
+  convidaria erro de transcrição, e um UID errado é uma citação falsa. O
+  mapeamento índice → regra real é feito em código.
+- **Sem regra recuperada, o modelo não é chamado.** Contexto vazio só criaria a
+  oportunidade de ele responder de memória.
+- **Filtro que não casa nada é relaxado, com aviso visível.** Devolver lista
+  vazia deixa o analista sem saber por quê; relaxar em silêncio faria a resposta
+  afirmar que existe regra para uma técnica que o corpus não cobre.
+
+Verificação direta: perguntado *"qual a capital da França?"*, o assistente
+responde que as regras fornecidas não respondem à pergunta e descreve o que o
+contexto cobre. Ele sabe a resposta e recusa usá-la.
+
+### 7. A interface
+
+Conceito: **mesa de referência, não conversa**. O acervo são regras catalogadas
+com identificador estável e link verificável, e o produto é a citação — por
+isso cada regra é uma ficha de catálogo com a lógica de detecção mostrada como
+ela é escrita na fonte, e não um card de dashboard.
+
+O elemento de assinatura é o selo de ancoragem descrito acima. A ousadia visual
+fica concentrada nele; o resto é disciplinado de propósito.
+
+Sem framework, sem CDN de biblioteca e sem passo de build: a página é servida
+pela própria aplicação FastAPI, para que rodar a demo seja um comando. O
+renderizador de markdown tem ~60 linhas e escapa HTML antes de tudo, porque o
+texto vem de um LLM e não é confiável por construção.
+
+---
+
+## Avaliação
+
+O harness está em [`eval/`](./eval/) e o relatório reproduzível em
+[`eval/results.md`](./eval/results.md).
+
+**Método.** As 30 regras-alvo foram sorteadas do corpus com semente fixa,
+estratificadas por fonte, **antes** de qualquer pergunta ser escrita — sem
+isso, seria trivial escolher depois só as regras que funcionam e publicar um
+número bonito. As perguntas foram escritas a partir da descrição de cada regra,
+em português (o corpus é em inglês), sem copiar o título; há um teste
+verificando isso, além de testes de integridade do conjunto.
+
+**Recortes do resultado (recall@5):**
+
+| Tipo de pergunta | | Fonte da regra | |
+|---|---:|---|---:|
+| termo ATT&CK exato | 100% | Splunk ESCU | 100% |
+| descrição semântica | 100% | YARA-L | 100% |
+| identificador lexical | 92% | SigmaHQ | 92% |
+
+**Duas limitações que o número carrega**, e que nenhum processo aqui elimina:
+
+1. **É um piso, não a taxa real.** Só um `rule_uid` é aceito como correto por
+   pergunta, mas o corpus tem regras equivalentes — uma busca que devolve outra
+   regra igualmente válida para dump de LSASS conta como erro.
+2. **Quem escreveu as perguntas conhecia o sistema.** O viés é real e não some
+   por boa intenção. O que reduz seu efeito é a amostra ter sido fixada antes e
+   nenhuma pergunta ter sido descartada depois de ver o resultado.
+
+---
+
+## Limitações conhecidas
+
+- **Uma pergunta do conjunto ainda falha** (q09, sobre `tttracer.exe`): a regra
+  certa existe e tem o termo na descrição, mas o corpus tem muitas regras de
+  dump de LSASS e a descrição dela é curta.
+- **O conjunto de avaliação tem um ponto cego**: as perguntas saem das
+  descrições, então nenhuma testa busca por termo que só existe na lógica de
+  detecção. É justamente o caso em que a perna de full-text poderia se
+  justificar, e por isso a decisão de mantê-la desligada é provisória.
+- **A responsividade em largura de celular não foi confirmada visualmente.** Os
+  pontos de quebra existem e há teste de que estão na folha de estilo, mas a
+  verificação em tela pequena não foi feita.
+- **Sem autenticação, sem multi-tenant, sem upload de regras privadas** — fora
+  de escopo por decisão, não por esquecimento.
+- **`k` do RRF e tamanho do pool não foram sintonizados.** Na configuração
+  padrão existe uma única lista ranqueada, e o RRF preserva a ordem dela para
+  qualquer `k`; a varredura só faz sentido com a perna de full-text ligada.
+
+---
+
 ## Stack
 
 - Python 3.12, FastAPI + Pydantic v2
-- Postgres + `pgvector` (índice HNSW, cosseno)
+- Postgres + `pgvector` (índice HNSW, distância de cosseno)
 - Provedor de LLM/embedding configurável via `.env` — nenhum SDK de provedor é
   importado fora de `src/providers/`, e há um teste que garante isso
 - Interface sem framework e sem CDN de biblioteca: HTML, CSS e JS servidos pela
   própria aplicação
+- 173 testes; os que exigem banco e chave estão marcados como `integration` e
+  são pulados quando o ambiente não está montado
+
+## Estrutura
+
+```
+src/
+├── ingestion/   normaliza as 3 fontes num schema comum (Pydantic)
+├── chunking/    separa o que vira vetor do que fica como contexto
+├── providers/   abstração Anthropic / OpenAI / Voyage (LLM + embedding)
+├── embeddings/  schema do pgvector e indexação
+├── retrieval/   filtro por metadado + busca vetorial + fusão RRF
+├── rag/         prompt, geração e verificação de citação
+├── api/         FastAPI
+└── frontend/    interface de demonstração
+eval/            conjunto de perguntas, harness e resultados
+```
+
+Para o histórico de decisões, incluindo as que foram revistas e o porquê, ver
+[`PROGRESS.md`](./PROGRESS.md). O brief original do projeto está em
+[`CLAUDE.md`](./CLAUDE.md).
