@@ -15,6 +15,10 @@ from pydantic import BaseModel, Field
 class AskRequest(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
     top_k: int = Field(default=5, ge=1, le=20)
+    #: Id de um modelo do catálogo. Ausente, usa o padrão do `.env`. O provedor
+    #: não é pedido junto de propósito: ele é derivado do modelo, e assim não
+    #: existe requisição com par provedor/modelo contraditório.
+    model: str | None = Field(default=None, max_length=100)
 
 
 class RuleOut(BaseModel):
@@ -79,3 +83,21 @@ class HealthResponse(BaseModel):
     embedding_model: str
     llm_provider: str
     llm_model: str
+
+
+class ModelOut(BaseModel):
+    """Um modelo ofertado no seletor de geração."""
+
+    id: str
+    provider: str
+    label: str
+    note: str
+    price_in: float = Field(description="US$ por 1M de tokens de entrada.")
+    price_out: float = Field(description="US$ por 1M de tokens de saída.")
+    available: bool = Field(description="Se há chave configurada para o provedor.")
+    is_default: bool = Field(description="Se é o modelo que o `.env` define como padrão.")
+
+
+class ModelsResponse(BaseModel):
+    models: list[ModelOut] = Field(default_factory=list)
+    default_model: str

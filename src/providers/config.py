@@ -63,8 +63,10 @@ class Settings(BaseSettings):
     voyage_api_key: str = ""
 
     # --- Modelos ---
+    # Estes são apenas os *padrões*: a interface e o `--model` do CLI escolhem
+    # por requisição dentro do catálogo (`src/providers/catalog.py`).
     anthropic_llm_model: str = "claude-opus-5"
-    openai_llm_model: str = "gpt-5"
+    openai_llm_model: str = "gpt-5.4-mini"
     openai_embedding_model: str = "text-embedding-3-small"
     voyage_embedding_model: str = "voyage-3"
 
@@ -82,6 +84,19 @@ class Settings(BaseSettings):
 
     # --- Retrieval ---
     retrieval_top_k: int = Field(default=5, ge=1)
+
+    def has_key_for(self, provider: str) -> bool:
+        """Se há chave configurada para um provedor de geração.
+
+        O seletor de modelos usa isto para mostrar como indisponível o que não
+        tem chave, em vez de deixar a escolha falhar só na hora de perguntar.
+        """
+        return bool(
+            {
+                "anthropic": self.anthropic_api_key,
+                "openai": self.openai_api_key,
+            }.get(provider, "")
+        )
 
     def resolved_database_url(self) -> str:
         """Devolve a URL de conexão, montando-a se não vier pronta do ambiente.

@@ -137,13 +137,51 @@ A geração usa o provedor de `LLM_PROVIDER` (`anthropic` ou `openai`); o
 embedding usa `EMBEDDING_PROVIDER` (`openai` ou `voyage`). As duas escolhas são
 independentes porque a Anthropic não tem API de embeddings própria.
 
+### Escolha do modelo de geração
+
+O `.env` define apenas o **padrão**. A interface mostra os modelos como fichas
+selecionáveis, com o preço em cada uma, e a escolha vale por pergunta — o
+acervo, a busca e a verificação de citação não mudam com ela. Só muda quem
+redige a resposta.
+
+As opções ficam à vista sem precisar abrir nada, de propósito: o motivo do
+controle existir é comparar custo, e um menu suspenso esconderia justamente a
+informação que sustenta a escolha.
+
+O catálogo vive em `src/providers/catalog.py` e é servido por `GET /api/models`,
+com preço por 1M de tokens:
+
+| Modelo | Provedor | Entrada | Saída |
+| --- | --- | ---: | ---: |
+| `gpt-5.4-nano` | OpenAI | US$ 0,20 | US$ 1,25 |
+| `gpt-5.4-mini` | OpenAI | US$ 0,75 | US$ 4,50 |
+| `claude-haiku-4-5` | Anthropic | US$ 1,00 | US$ 5,00 |
+| `gpt-5.4` | OpenAI | US$ 2,50 | US$ 15,00 |
+| `claude-sonnet-5` | Anthropic | US$ 3,00 | US$ 15,00 |
+| `claude-opus-5` | Anthropic | US$ 5,00 | US$ 25,00 |
+| `gpt-5.5` | OpenAI | US$ 5,00 | US$ 30,00 |
+
+Preços conferidos em 26/08/2026; são metadado de exibição e não entram em
+nenhuma decisão do código. Um modelo cujo provedor não tem chave configurada
+aparece no seletor como indisponível, em vez de sumir — quem avalia o projeto
+deve ver que a alternativa existe e o que falta para usá-la.
+
+O ganho é concreto: na mesma pergunta (`T1055 no Windows`, top-3), a resposta
+sai ancorada e citando as 3 regras nos três modelos testados, com
+`claude-opus-5` em 11,4 s, `claude-haiku-4-5` em 4,3 s e `gpt-5.4-nano` em
+3,2 s — a 20x menos por token de saída.
+
 ### Sem interface
 
 ```bash
 python -m src.retrieval.run "tem regra pra T1055 no Windows?" --explain
 python -m src.rag.run "como detectar dump de memória do LSASS?" --show-sources
-python -m src.rag.run "mesma pergunta" --provider openai   # troca o provedor
+python -m src.rag.run "mesma pergunta" --provider openai        # troca o provedor
+python -m src.rag.run "mesma pergunta" --model claude-haiku-4-5  # troca o modelo
 ```
+
+`--model` implica o provedor: escolher `claude-haiku-4-5` já manda a chamada
+para a Anthropic, mesmo com `LLM_PROVIDER=openai` no ambiente.
 
 ### Avaliação
 

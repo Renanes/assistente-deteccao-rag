@@ -23,13 +23,16 @@ class AnthropicLLMProvider(LLMProvider):
 
     name = "anthropic"
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, model: str | None = None) -> None:
         if not settings.anthropic_api_key:
             raise ProviderError(
                 "LLM_PROVIDER=anthropic exige ANTHROPIC_API_KEY preenchida no .env."
             )
 
-        self.model = settings.anthropic_llm_model
+        # `model` sobrescreve o `.env` quando a escolha vem da requisição (o
+        # seletor da interface) ou da linha de comando. Sem escolha explícita,
+        # o padrão continua sendo o do ambiente.
+        self.model = model or settings.anthropic_llm_model
 
         import anthropic
 

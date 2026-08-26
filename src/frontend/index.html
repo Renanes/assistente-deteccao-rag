@@ -44,6 +44,21 @@
         required>
       <button type="submit" class="ask__submit" id="askSubmit">Consultar</button>
     </div>
+
+    <fieldset class="picker">
+      <legend class="picker__legend">
+        Modelo que redige a resposta
+        <span class="picker__hint">preço por 1M de tokens de saída</span>
+      </legend>
+      <div class="picker__groups" id="modelOptions">
+        <p class="picker__loading">carregando o catálogo…</p>
+      </div>
+      <p class="picker__note" id="modelNote">
+        O acervo, a busca e a conferência de citação não mudam com a escolha —
+        só quem escreve a resposta.
+      </p>
+    </fieldset>
+
     <p class="ask__hint">
       A resposta cita apenas regras deste acervo. Cada citação é conferida contra
       as regras recuperadas antes de aparecer aqui.

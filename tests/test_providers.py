@@ -21,6 +21,7 @@ import pytest
 from src.embeddings.run import check_index_support, check_model_consistency
 from src.embeddings.store import IndexedCorpusInfo
 from src.providers import (
+    CATALOG,
     EMBEDDING_DIMENSIONS,
     PGVECTOR_INDEX_MAX_DIMENSIONS,
     EmbeddingProvider,
@@ -29,6 +30,7 @@ from src.providers import (
     get_embedding_provider,
     get_llm_provider,
 )
+from src.providers import catalog
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -282,6 +284,78 @@ def test_default_embedding_model_fits_the_pgvector_index_limit() -> None:
     """Trava a decisão de arquitetura: o padrão precisa ser indexável."""
     default_model = make_settings().openai_embedding_model
     assert EMBEDDING_DIMENSIONS[default_model] <= PGVECTOR_INDEX_MAX_DIMENSIONS
+
+
+# --------------------------------------------------------------------------
+# Catálogo de modelos de geração
+# --------------------------------------------------------------------------
+
+
+def test_every_catalogued_model_can_be_instantiated() -> None:
+    """O catálogo é o que a interface oferece — nada nele pode ser inconstruível."""
+    settings = make_settings(anthropic_api_key="sk-ant-teste", openai_api_key="sk-teste")
+
+    for card in CATALOG:
+        provider = get_llm_provider(settings, model=card.id)
+        assert provider.model == card.id
+        assert provider.name == card.provider
+
+
+def test_chosen_model_overrides_the_configured_provider() -> None:
+    """Escolher o modelo já escolhe o provedor.
+
+    É a propriedade que permite ao seletor mandar só o id: com
+    `LLM_PROVIDER=openai` no ambiente, pedir um modelo Anthropic tem que ir
+    para a Anthropic, e não montar um par contraditório.
+    """
+    provider = get_llm_provider(
+        make_settings(
+            llm_provider="openai", openai_api_key="sk-teste", anthropic_api_key="sk-ant-teste"
+        ),
+        model="claude-haiku-4-5",
+    )
+    assert provider.name == "anthropic"
+    assert provider.model == "claude-haiku-4-5"
+
+
+def test_model_outside_the_catalog_lists_the_accepted_ids() -> None:
+    with pytest.raises(ProviderError) as error:
+        get_llm_provider(
+            make_settings(anthropic_api_key="sk-ant-teste"), model="claude-inventado-9"
+        )
+
+    message = str(error.value)
+    assert "não está no catálogo" in message
+    # A mensagem precisa dizer o que *é* aceito, não só que aquilo não é.
+    assert "claude-haiku-4-5" in message
+
+
+def test_choosing_a_model_without_its_key_names_the_variable() -> None:
+    """Sem chave, o erro tem que apontar a variável — não o modelo."""
+    with pytest.raises(ProviderError, match="OPENAI_API_KEY"):
+        get_llm_provider(make_settings(anthropic_api_key="sk-ant-teste"), model="gpt-5.4-mini")
+
+
+def test_default_models_are_in_the_catalog() -> None:
+    """Guarda de regressão concreta.
+
+    O padrão de OpenAI era `gpt-5`, um id que a API não reconhece mais: a
+    aplicação subia normalmente e só quebrava na primeira pergunta. Um padrão
+    que não está no catálogo é essa mesma falha esperando para acontecer.
+    """
+    settings = make_settings()
+    catalogued = catalog.known_ids()
+
+    assert settings.anthropic_llm_model in catalogued
+    assert settings.openai_llm_model in catalogued
+
+
+def test_has_key_for_reports_what_is_configured() -> None:
+    settings = make_settings(anthropic_api_key="sk-ant-teste")
+    assert settings.has_key_for("anthropic")
+    assert not settings.has_key_for("openai")
+    # Um provedor que não existe não tem chave — e não estoura.
+    assert not settings.has_key_for("cohere")
 
 
 # --------------------------------------------------------------------------

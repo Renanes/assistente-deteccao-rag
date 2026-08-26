@@ -13,11 +13,19 @@ instalados.
 
 from __future__ import annotations
 
+from . import catalog
 from .base import EmbeddingProvider, LLMProvider, ProviderError
+from .catalog import LLM_PROVIDERS
 from .config import Settings, get_settings
 
 EMBEDDING_PROVIDERS = ("openai", "voyage")
-LLM_PROVIDERS = ("anthropic", "openai")
+
+__all__ = [
+    "EMBEDDING_PROVIDERS",
+    "LLM_PROVIDERS",
+    "get_embedding_provider",
+    "get_llm_provider",
+]
 
 
 def get_embedding_provider(settings: Settings | None = None) -> EmbeddingProvider:
@@ -53,20 +61,38 @@ def get_embedding_provider(settings: Settings | None = None) -> EmbeddingProvide
     )
 
 
-def get_llm_provider(settings: Settings | None = None) -> LLMProvider:
-    """Instancia o provedor de geração indicado por `LLM_PROVIDER`."""
+def get_llm_provider(settings: Settings | None = None, model: str | None = None) -> LLMProvider:
+    """Instancia o provedor de geração.
+
+    Sem `model`, o provedor vem de `LLM_PROVIDER` e o modelo do `.env` — o
+    comportamento de sempre. Com `model`, o provedor é *derivado do catálogo*:
+    escolher `claude-haiku-4-5` já diz que a chamada é Anthropic, mesmo com
+    `LLM_PROVIDER=openai` no ambiente. Isso é o que permite ao seletor da
+    interface mandar só o id do modelo, sem poder mandar um par contraditório.
+    """
     settings = settings or get_settings()
-    choice = settings.llm_provider.strip().lower()
+
+    if model:
+        card = catalog.by_id(model)
+        if card is None:
+            raise ProviderError(
+                f"Modelo de geração '{model}' não está no catálogo. "
+                f"Modelos aceitos: {', '.join(catalog.known_ids())}."
+            )
+        choice = card.provider
+        model = card.id
+    else:
+        choice = settings.llm_provider.strip().lower()
 
     if choice == "anthropic":
         from .anthropic_provider import AnthropicLLMProvider
 
-        return AnthropicLLMProvider(settings)
+        return AnthropicLLMProvider(settings, model=model)
 
     if choice == "openai":
         from .openai_provider import OpenAILLMProvider
 
-        return OpenAILLMProvider(settings)
+        return OpenAILLMProvider(settings, model=model)
 
     raise ProviderError(
         f"LLM_PROVIDER='{settings.llm_provider}' desconhecido. "

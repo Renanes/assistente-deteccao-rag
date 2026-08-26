@@ -5,6 +5,7 @@ Nenhum módulo fora deste pacote deve importar `openai`, `anthropic` ou
 """
 
 from .base import EmbeddingProvider, Generation, LLMProvider, ProviderError
+from .catalog import CATALOG, ModelCard
 from .config import (
     EMBEDDING_DIMENSIONS,
     PGVECTOR_INDEX_MAX_DIMENSIONS,
@@ -19,6 +20,7 @@ from .registry import (
 )
 
 __all__ = [
+    "CATALOG",
     "EMBEDDING_DIMENSIONS",
     "EMBEDDING_PROVIDERS",
     "LLM_PROVIDERS",
@@ -26,6 +28,7 @@ __all__ = [
     "EmbeddingProvider",
     "Generation",
     "LLMProvider",
+    "ModelCard",
     "ProviderError",
     "Settings",
     "get_embedding_provider",

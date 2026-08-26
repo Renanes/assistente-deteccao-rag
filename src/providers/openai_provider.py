@@ -71,11 +71,13 @@ class OpenAILLMProvider(LLMProvider):
 
     name = "openai"
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, model: str | None = None) -> None:
         if not settings.openai_api_key:
             raise ProviderError("LLM_PROVIDER=openai exige OPENAI_API_KEY preenchida no .env.")
 
-        self.model = settings.openai_llm_model
+        # Ver a nota equivalente em `anthropic_provider.py`: escolha explícita
+        # ganha do `.env`, ausência de escolha mantém o padrão do ambiente.
+        self.model = model or settings.openai_llm_model
 
         from openai import OpenAI
 

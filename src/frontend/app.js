@@ -269,6 +269,145 @@ function render(data) {
   });
 }
 
+/* --------------------------------------------------- seletor de modelo */
+
+/* A escolha do modelo é de quem usa, não do `.env`: rodar a demonstração
+   inteira no modelo mais caro do catálogo é a diferença entre centavos e
+   dezenas de dólares. O padrão continua vindo do servidor; a escolha
+   sobrevive ao recarregamento porque quem escolheu barato uma vez não quer
+   escolher de novo a cada pergunta. */
+
+const MODEL_KEY = "mesa.modelo";
+const modelOptions = el("modelOptions");
+const modelNote = el("modelNote");
+
+/* As opções são fichas de rádio visíveis, e não um `<select>`.
+   A primeira versão desta tela usava `<select>` e o defeito era básico: um
+   menu suspenso esconde as opções até alguém clicar nele, então a página não
+   mostrava que havia escolha nenhuma a fazer. Aqui os sete modelos e os sete
+   preços ficam à vista sem interação, que é o ponto — a escolha só é real se
+   der para comparar antes de escolher. */
+let chosenModel = null;
+
+let catalog = [];
+
+/* O cabeçalho anuncia qual modelo responderá a próxima pergunta. Enquanto a
+   escolha vinha só do `.env`, `/api/health` era a fonte certa; agora que ela é
+   de quem usa, o seletor é que manda — senão o cabeçalho diz "opus-5" e a
+   resposta logo abaixo vem assinada por outro modelo. A bandeira evita que a
+   resposta de `/api/health`, que chega depois, sobrescreva a escolha. */
+let generationStatOwned = false;
+
+function showGenerationStat(text) {
+  el("statLlm").textContent = text;
+}
+
+/* localStorage falha em aba privativa e com cookies bloqueados. Como isto é
+   conveniência e não estado essencial, engolir a falha e seguir com o padrão
+   do servidor é o comportamento correto. */
+function readStored() {
+  try {
+    return localStorage.getItem(MODEL_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function storeChoice(id) {
+  try {
+    localStorage.setItem(MODEL_KEY, id);
+  } catch {
+    /* sem persistência: a escolha vale só para esta sessão */
+  }
+}
+
+function priceLabel(card) {
+  return `US$ ${card.price_in.toFixed(2)} entrada · US$ ${card.price_out.toFixed(2)} saída por 1M`;
+}
+
+function describeModel(id) {
+  const card = catalog.find((item) => item.id === id);
+  if (!card) return;
+  modelNote.textContent = card.available
+    ? `${card.note} ${priceLabel(card)}.`
+    : `Indisponível: falta a chave de API do provedor ${card.provider} no .env.`;
+
+  generationStatOwned = true;
+  showGenerationStat(`${card.provider}/${card.id}`);
+}
+
+function selectModel(id) {
+  chosenModel = id;
+  storeChoice(id);
+  describeModel(id);
+  for (const chip of modelOptions.querySelectorAll(".chip")) {
+    chip.classList.toggle("is-on", chip.dataset.model === id);
+  }
+}
+
+function buildModelPicker(data) {
+  catalog = data.models;
+  modelOptions.innerHTML = "";
+
+  const groups = new Map();
+  for (const card of catalog) {
+    if (!groups.has(card.provider)) {
+      const group = document.createElement("div");
+      group.className = "picker__group";
+      group.innerHTML = `<span class="picker__provider">${escapeHtml(card.provider)}</span>`;
+      groups.set(card.provider, group);
+      modelOptions.appendChild(group);
+    }
+
+    // Rádio real, e não um `div` com onclick: dá navegação por setas, papel de
+    // grupo e foco de teclado sem reimplementar nada disso à mão. O input fica
+    // escondido só visualmente — continua sendo ele que recebe o foco.
+    const chip = document.createElement("label");
+    chip.className = "chip" + (card.available ? "" : " chip--off");
+    chip.dataset.model = card.id;
+    chip.innerHTML = `
+      <input type="radio" name="modelo" value="${escapeHtml(card.id)}"${
+        card.available ? "" : " disabled"
+      }>
+      <span class="chip__name">${escapeHtml(card.label)}</span>
+      <span class="chip__price">${
+        card.available ? `US$ ${card.price_out.toFixed(2)}` : "sem chave"
+      }</span>
+    `;
+    groups.get(card.provider).appendChild(chip);
+  }
+
+  const stored = readStored();
+  const usable = catalog.filter((card) => card.available).map((card) => card.id);
+  const chosen =
+    (stored && usable.includes(stored) && stored) ||
+    (usable.includes(data.default_model) && data.default_model) ||
+    usable[0];
+
+  if (!chosen) {
+    modelNote.textContent =
+      "Nenhum provedor de geração configurado. Preencha ANTHROPIC_API_KEY ou OPENAI_API_KEY no .env.";
+    return;
+  }
+
+  const input = modelOptions.querySelector(`input[value="${CSS.escape(chosen)}"]`);
+  if (input) input.checked = true;
+  selectModel(chosen);
+}
+
+modelOptions.addEventListener("change", (event) => {
+  const input = event.target.closest("input[name='modelo']");
+  if (input) selectModel(input.value);
+});
+
+fetch("/api/models")
+  .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+  .then(buildModelPicker)
+  .catch(() => {
+    modelOptions.innerHTML = "";
+    modelNote.textContent = "Não deu para ler o catálogo de modelos — a resposta usará o padrão.";
+  });
+
 /* ------------------------------------------------------------ requisição */
 
 function setState(name, detail) {
@@ -287,7 +426,8 @@ async function ask(question) {
     const response = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, top_k: 5 }),
+      // `model` só vai quando há escolha válida; sem ele o servidor usa o padrão.
+      body: JSON.stringify({ question, top_k: 5, model: chosenModel }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -320,7 +460,10 @@ fetch("/api/health")
   .then((health) => {
     el("statChunks").textContent = `${health.indexed_chunks.toLocaleString("pt-BR")} regras`;
     el("statEmbedding").textContent = health.embedding_model;
-    el("statLlm").textContent = `${health.llm_provider}/${health.llm_model}`;
+    // Só se o seletor ainda não decidiu — ver a nota em `generationStatOwned`.
+    if (!generationStatOwned) {
+      showGenerationStat(`${health.llm_provider}/${health.llm_model}`);
+    }
   })
   .catch(() => {
     el("statChunks").textContent = "indisponível";

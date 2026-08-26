@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ..embeddings import store
 from ..providers import (
+    CATALOG,
     EmbeddingProvider,
     LLMProvider,
     ProviderError,
@@ -38,7 +39,15 @@ from ..providers import (
 )
 from ..rag.pipeline import RagPipeline
 from ..retrieval.search import HybridRetriever
-from .schemas import AskRequest, AskResponse, GroundingOut, HealthResponse, RuleOut
+from .schemas import (
+    AskRequest,
+    AskResponse,
+    GroundingOut,
+    HealthResponse,
+    ModelOut,
+    ModelsResponse,
+    RuleOut,
+)
 
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
@@ -48,7 +57,30 @@ class Runtime:
 
     settings = None
     embedding: EmbeddingProvider | None = None
+    #: Provedor do modelo padrão, o do `.env`.
     llm: LLMProvider | None = None
+    #: Provedores já construídos, indexados pelo id do modelo.
+    #:
+    #: Construir um cliente de SDK por requisição desperdiçaria a conexão HTTP
+    #: reaproveitada; construir todos no arranque puniria quem só usa um. O
+    #: cache preguiçoso paga o custo uma vez, no primeiro uso de cada modelo.
+    #: A escrita concorrente é benigna: no pior caso duas threads constroem o
+    #: mesmo provedor e uma sobrescreve a outra — os clientes são equivalentes.
+    llm_by_model: dict[str, LLMProvider] = {}
+
+    def llm_for(self, model: str | None) -> LLMProvider:
+        """Devolve o provedor do modelo pedido, ou o padrão se não houver pedido."""
+        assert self.llm is not None and self.settings is not None
+        if not model or model == self.llm.model:
+            return self.llm
+
+        cached = self.llm_by_model.get(model)
+        if cached is not None:
+            return cached
+
+        provider = get_llm_provider(self.settings, model=model)
+        self.llm_by_model[model] = provider
+        return provider
 
 
 runtime = Runtime()
@@ -64,6 +96,7 @@ async def lifespan(app: FastAPI):
         # Falhar aqui é melhor que falhar na primeira pergunta: quem sobe a
         # aplicação vê a causa imediatamente.
         raise RuntimeError(f"configuração de provedor inválida: {error}") from error
+    runtime.llm_by_model = {runtime.llm.model: runtime.llm}
     yield
 
 
@@ -98,15 +131,51 @@ def health() -> HealthResponse:
     )
 
 
+@app.get("/api/models", response_model=ModelsResponse)
+def models() -> ModelsResponse:
+    """O catálogo de modelos de geração, como a interface monta o seletor.
+
+    Um modelo cujo provedor não tem chave configurada vem com `available:
+    false` em vez de ser omitido: quem avalia o projeto deve conseguir ver que
+    a alternativa existe e o que falta para usá-la.
+    """
+    assert runtime.settings is not None and runtime.llm is not None
+
+    default_model = runtime.llm.model
+    return ModelsResponse(
+        default_model=default_model,
+        models=[
+            ModelOut(
+                id=card.id,
+                provider=card.provider,
+                label=card.label,
+                note=card.note,
+                price_in=card.price_in,
+                price_out=card.price_out,
+                available=runtime.settings.has_key_for(card.provider),
+                is_default=card.id == default_model,
+            )
+            for card in CATALOG
+        ],
+    )
+
+
 @app.post("/api/ask", response_model=AskResponse)
 def ask(request: AskRequest) -> AskResponse:
     assert runtime.embedding is not None and runtime.llm is not None
+
+    # Um modelo fora do catálogo ou sem chave é erro de pedido (400), não falha
+    # de serviço (503): quem pediu é que precisa corrigir, e a mensagem diz o quê.
+    try:
+        llm = runtime.llm_for(request.model)
+    except ProviderError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
     started = time.perf_counter()
     try:
         with _connect() as conn:
             pipeline = RagPipeline(
-                HybridRetriever(conn, runtime.embedding), runtime.llm, top_k=request.top_k
+                HybridRetriever(conn, runtime.embedding), llm, top_k=request.top_k
             )
             result = pipeline.answer(request.question)
     except Exception as error:  # noqa: BLE001
@@ -164,7 +233,13 @@ if FRONTEND_DIR.is_dir():
 
     @app.get("/")
     def index() -> FileResponse:
-        return FileResponse(FRONTEND_DIR / "index.html")
+        # `no-cache` manda revalidar a cada carga — não proíbe o cache, obriga a
+        # perguntar se mudou. Sem isto o navegador serve o HTML anterior por
+        # heurística própria, e quem editou a interface fica olhando a versão
+        # velha achando que a mudança não subiu. Aconteceu de fato aqui.
+        return FileResponse(
+            FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-cache"}
+        )
 
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 

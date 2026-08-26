@@ -190,6 +190,117 @@ button { font: inherit; cursor: pointer; }
 .ask__submit:hover:not(:disabled) { filter: brightness(1.08); }
 .ask__submit:disabled { opacity: 0.55; cursor: progress; }
 
+/* Seletor de modelo: fichas à vista, não um menu suspenso.
+   Um `<select>` esconde as opções até alguém clicar — a página não mostrava
+   que havia escolha a fazer. Aqui os modelos e os preços ficam legíveis sem
+   interação nenhuma, no mesmo idioma visual dos chips de exemplo logo abaixo:
+   contorno tracejado em repouso, sólido e verde quando é a escolha ativa. */
+.picker {
+  margin: calc(var(--passo) * 4) 0 0;
+  padding: calc(var(--passo) * 3) 0 0;
+  border: 0;
+  border-top: 1px dashed var(--regua);
+}
+
+.picker__legend {
+  padding: 0;
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tinta);
+}
+
+.picker__hint {
+  font-family: var(--corpo);
+  font-weight: 400;
+  color: var(--grafite);
+}
+
+.picker__hint::before { content: " · "; }
+
+.picker__groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 2) calc(var(--passo) * 6);
+  margin-top: calc(var(--passo) * 3);
+}
+
+.picker__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 2);
+}
+
+.picker__provider {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--grafite);
+}
+
+.picker__loading { margin: calc(var(--passo) * 3) 0 0; font-size: 13px; color: var(--grafite); }
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 1.5) calc(var(--passo) * 3);
+  font-size: 13px;
+  color: var(--grafite);
+  border: 1px dashed var(--regua-forte);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+/* O rádio some da vista mas não do foco: continua sendo ele que o teclado
+   alcança, e o anel de foco é desenhado na ficha inteira logo abaixo. */
+.chip input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.chip:hover { color: var(--verificado); border-color: var(--verificado); }
+
+.chip__name { font-weight: 500; }
+
+.chip__price {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.chip.is-on {
+  color: var(--verificado);
+  background: var(--verificado-fraco);
+  border-style: solid;
+  border-color: var(--verificado);
+}
+
+.chip:has(input:focus-visible) {
+  outline: 2px solid var(--verificado);
+  outline-offset: 2px;
+}
+
+.chip--off {
+  opacity: 0.5;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.chip--off:hover { color: var(--grafite); border-color: var(--regua-forte); }
+
+.picker__note {
+  margin: calc(var(--passo) * 3) 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--grafite);
+  max-width: 78ch;
+}
+
 .ask__hint {
   margin: calc(var(--passo) * 2) 0 0;
   font-size: 13px;
@@ -617,4 +728,8 @@ button { font: inherit; cursor: pointer; }
   .desk-head__stats { gap: calc(var(--passo) * 5); }
   .ask__row { flex-direction: column; }
   .ask__submit { width: 100%; }
+  /* Em tela estreita cada provedor vira uma faixa própria, para as fichas não
+     quebrarem no meio de um grupo e embaralharem a qual provedor pertencem. */
+  .picker__groups { gap: calc(var(--passo) * 4); }
+  .picker__group { flex: 1 1 100%; }
 }

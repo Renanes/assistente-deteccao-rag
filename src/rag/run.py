@@ -3,11 +3,16 @@
 Uso:
     python -m src.rag.run "como detectar injeção de processo no Windows?"
     python -m src.rag.run "tem regra pra T1055?" --provider openai
+    python -m src.rag.run "mimikatz" --model claude-haiku-4-5
     python -m src.rag.run "mimikatz" --top-k 8 --show-sources
 
 `--provider` sobrescreve o `LLM_PROVIDER` do `.env` para uma execução, que é
 como o critério de aceite da fase (funcionar com os dois provedores) foi
 verificado sem editar arquivo entre um teste e outro.
+
+`--model` escolhe um modelo do catálogo e já implica o provedor dele — é o
+equivalente em linha de comando ao seletor da interface, e o caminho para
+comparar custo e qualidade de resposta entre modelos na mesma pergunta.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ import sys
 
 from ..embeddings import store
 from ..providers import ProviderError, get_embedding_provider, get_llm_provider, get_settings
+from ..providers.catalog import known_ids
 from .pipeline import RagPipeline
 
 
@@ -31,6 +37,13 @@ def main() -> int:
         help="Sobrescreve LLM_PROVIDER só nesta execução.",
     )
     parser.add_argument(
+        "--model",
+        choices=known_ids(),
+        default=None,
+        metavar="MODELO",
+        help=f"Modelo de geração ({', '.join(known_ids())}). Implica o provedor.",
+    )
+    parser.add_argument(
         "--show-sources", action="store_true", help="Lista as regras recuperadas."
     )
     args = parser.parse_args()
@@ -41,7 +54,7 @@ def main() -> int:
 
     try:
         embedding_provider = get_embedding_provider(settings)
-        llm_provider = get_llm_provider(settings)
+        llm_provider = get_llm_provider(settings, model=args.model)
     except ProviderError as error:
         print(f"erro de provedor: {error}", file=sys.stderr)
         return 1

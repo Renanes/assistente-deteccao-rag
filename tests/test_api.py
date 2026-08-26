@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from src.api.schemas import AskRequest
+from src.providers import CATALOG
 
 FRONTEND = Path(__file__).resolve().parents[1] / "src" / "frontend"
 
@@ -47,6 +48,12 @@ def test_ask_request_bounds_top_k(top_k: int) -> None:
 def test_ask_request_rejects_an_overlong_question() -> None:
     with pytest.raises(ValueError):
         AskRequest(question="x" * 1001)
+
+
+def test_ask_request_model_is_optional() -> None:
+    """Sem escolha explícita a API usa o padrão do `.env` — o comportamento antigo."""
+    assert AskRequest(question="pergunta").model is None
+    assert AskRequest(question="pergunta", model="claude-haiku-4-5").model == "claude-haiku-4-5"
 
 
 # --------------------------------------------------------------------------
@@ -123,6 +130,33 @@ def test_script_escapes_html_before_rendering(js: str) -> None:
     assert "escapeHtml(source)" in js, "markdown renderizado sem escapar antes"
 
 
+def test_the_selector_reads_the_catalog_from_the_server(js: str) -> None:
+    """A interface monta o seletor do catálogo da API, não de uma lista própria.
+
+    Duplicar os ids no JS é exatamente como as duas listas passam a divergir: o
+    seletor ofereceria um modelo que a API recusa, ou esconderia um que ela
+    aceita. O teste trava a direção da dependência.
+    """
+    assert "/api/models" in js, "o seletor não lê o catálogo do servidor"
+    for card in CATALOG:
+        assert card.id not in js, (
+            f"'{card.id}' está escrito no app.js — o catálogo deve vir só da API"
+        )
+
+
+def test_model_options_are_visible_without_interaction(html: str, js: str) -> None:
+    """Regressão de um defeito real desta sessão.
+
+    A primeira versão do seletor era um `<select>`. O usuário reportou não ter
+    visto opção nenhuma para escolher o modelo — e estava certo: um menu
+    suspenso esconde as opções até alguém clicar nele, então a página não
+    mostrava que havia escolha a fazer. Um controle de escolha que só se revela
+    sob clique não comunica que a escolha existe.
+    """
+    assert "<select" not in html, "as opções voltaram a ficar escondidas num <select>"
+    assert 'type="radio"' in js, "as fichas de modelo deixaram de ser rádios"
+
+
 def test_palette_is_named_and_sized_as_planned(css: str) -> None:
     """Trava o plano de design: 6 cores nomeadas, não uma paleta improvisada."""
     for token in ("--papel", "--carta", "--tinta", "--grafite", "--verificado", "--ressalva"):
@@ -188,6 +222,31 @@ def test_ask_returns_a_grounded_answer_with_citable_rules(client) -> None:  # ty
 def test_ask_rejects_an_invalid_request(client) -> None:  # type: ignore[no-untyped-def]
     assert client.post("/api/ask", json={"question": ""}).status_code == 422
     assert client.post("/api/ask", json={"question": "ok", "top_k": 99}).status_code == 422
+
+
+@pytest.mark.integration
+def test_models_endpoint_describes_the_whole_catalog(client) -> None:  # type: ignore[no-untyped-def]
+    body = client.get("/api/models").json()
+
+    assert {model["id"] for model in body["models"]} == {card.id for card in CATALOG}
+    assert body["default_model"] in {card.id for card in CATALOG}
+    # Exatamente um padrão, e ele tem que estar utilizável.
+    defaults = [model for model in body["models"] if model["is_default"]]
+    assert len(defaults) == 1 and defaults[0]["available"]
+
+    for model in body["models"]:
+        assert model["price_out"] > 0, model["id"]
+        assert model["note"].strip()
+
+
+@pytest.mark.integration
+def test_ask_rejects_a_model_outside_the_catalog(client) -> None:  # type: ignore[no-untyped-def]
+    """Pedido errado é 400, não 503: quem pediu é que corrige."""
+    response = client.post(
+        "/api/ask", json={"question": "tem regra pra T1055?", "model": "gpt-inventado"}
+    )
+    assert response.status_code == 400
+    assert "catálogo" in response.json()["detail"]
 
 
 @pytest.mark.integration

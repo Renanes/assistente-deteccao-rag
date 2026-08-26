@@ -1,8 +1,9 @@
 # Progresso do projeto
 
 ## Status atual
-- Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo**
-- Última atualização: 2026-08-22
+- Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo.**
+  Em manutenção pós-roadmap (ver sessão de 2026-08-26).
+- Última atualização: 2026-08-26
 
 ## Decisões de arquitetura
 - **Git dedicado para este projeto** — `agente_detection` estava aninhado
@@ -778,3 +779,98 @@ responsividade não confirmada em tela pequena).
 **Estado em que a sessão foi deixada:** `pytest` verde (173 testes), pipeline
 completo funcionando de ponta a ponta, README final, commit da Fase 8 feito.
 Projeto entregue conforme o brief.
+
+### 2026-08-26 — Sessão 9 (Claude Code)
+
+**O que foi feito:** escolha do modelo de geração pela interface, a pedido do
+usuário — "só opus 5 deixa a aplicação muito cara".
+
+**Decisões tomadas nesta sessão:**
+
+- **Catálogo de modelos como fonte única** (`src/providers/catalog.py`) — a API
+  valida contra ele, o CLI valida contra ele e a interface monta o seletor a
+  partir de `GET /api/models`. A alternativa era listar os modelos no JS e
+  aceitar qualquer string no backend; foi descartada porque as duas listas
+  divergem na primeira mudança e o sintoma é o seletor oferecer um modelo que a
+  API recusa. Há teste travando a direção da dependência: nenhum id do catálogo
+  pode aparecer escrito no `app.js`.
+- **O provedor é derivado do modelo, não pedido junto** — `get_llm_provider`
+  ganhou o parâmetro `model`, e quando ele vem, o provedor sai do catálogo em
+  vez de `LLM_PROVIDER`. Pedir o par (provedor, modelo) na requisição criaria a
+  chance de chegarem contraditórios; assim isso é irrepresentável. `LLM_PROVIDER`
+  segue decidindo só o padrão.
+- **Preço no catálogo, como metadado de exibição** — valores conferidos em
+  26/08/2026 nas duas tabelas oficiais. Nada no código ramifica por preço. Ficam
+  ali porque o motivo do seletor existir é custo: sem o número ao lado, a escolha
+  vira palpite. Preço de tabela envelhece — o docstring datou a conferência.
+- **Modelos sem chave aparecem como indisponíveis, não somem** — quem avalia o
+  projeto precisa ver que a alternativa existe e o que falta para usá-la. Escolher
+  um deles é 400 (erro de pedido), não 503 (falha de serviço).
+- **Cache preguiçoso de provedores por modelo na API** — construir um cliente de
+  SDK por requisição jogaria fora a conexão HTTP reaproveitada; construir todos
+  no arranque puniria quem usa um só. A escrita concorrente é benigna e está
+  comentada como tal.
+
+**Dois defeitos encontrados e corrigidos no caminho:**
+
+1. **`OPENAI_LLM_MODEL=gpt-5` não existe mais.** A conta não lista esse id: a
+   aplicação subia normal e só quebraria na primeira pergunta com
+   `LLM_PROVIDER=openai`. Trocado por `gpt-5.4-mini` no `.env`, no `.env.example`
+   e no default de `config.py`. Há teste de regressão exigindo que os dois
+   modelos padrão estejam no catálogo.
+2. **O cabeçalho mentia depois da troca de modelo.** `GERAÇÃO` vinha de
+   `/api/health` (o padrão do `.env`) e continuava dizendo `claude-opus-5`
+   enquanto a resposta logo abaixo vinha assinada por `claude-haiku-4-5`.
+   Encontrado olhando o screenshot da interface, não pelos testes. Agora o
+   seletor é dono desse campo, com bandeira para a resposta tardia do
+   `/api/health` não sobrescrever a escolha.
+
+**Medição na mesma pergunta** (`T1055 no Windows`, top-3), todas ancoradas e
+citando as 3 regras: `claude-opus-5` 11,4 s · `claude-haiku-4-5` 4,3 s ·
+`gpt-5.4-nano` 3,2 s. A qualidade da citação não caiu nos modelos baratos —
+esperado, já que o pipeline entrega o contexto pronto e a tarefa de redação é
+modesta.
+
+**Pendência levantada e não executada:** o `AnthropicLLMProvider` não passa
+`thinking` nem `output_config`. No Opus 5 isso significa pensamento adaptativo
+ligado por padrão, ou seja, tokens de raciocínio cobrados em toda pergunta de
+uma tarefa que é essencialmente redigir a partir de contexto já recuperado.
+Passar `output_config={"effort": "low"}` provavelmente corta custo sem perda
+relevante aqui. Não foi feito porque muda a qualidade da resposta e estava fora
+do que foi pedido — decisão do usuário, registrada para a próxima sessão.
+
+**Estado em que a sessão foi deixada:** `pytest` verde — 183 testes, incluindo
+os de integração contra o banco indexado e as duas APIs reais (168 sem
+integração). Interface verificada no navegador: seletor populado pela API, foco
+de teclado visível, troca de modelo, persistência da escolha entre recargas e
+cabeçalho coerente com ela. Aplicação no ar em `127.0.0.1:8000`.
+
+Nota de ambiente: o `ruff` está configurado no `pyproject.toml` mas não está
+instalado no `.venv`, então o lint não foi executado nesta sessão.
+
+**Correção na mesma sessão, após retorno do usuário:** *"eu não vi nada
+relacionado a me dar a opção de escolher essas opções no front-end"*.
+
+O relato estava certo e o defeito era de design, não de implementação: o
+seletor era um `<select>`, e um menu suspenso **esconde as opções até alguém
+clicar nele**. A página não comunicava que havia escolha a fazer — as sete
+opções e os sete preços eram invisíveis, que é justamente o oposto do objetivo
+(comparar custo antes de escolher). Trocado por fichas de rádio visíveis,
+agrupadas por provedor, no mesmo idioma visual dos chips de exemplo que a
+página já usava (tracejado em repouso, sólido e verde quando ativo). São
+`input[type=radio]` reais dentro de um `fieldset`, então navegação por setas,
+papel de grupo e foco de teclado vêm do navegador, sem reimplementação.
+
+Há teste travando isso: `<select` não pode voltar ao HTML da interface.
+
+**Segundo defeito, encontrado ao investigar o relato:** a rota `/` não mandava
+nenhum cabeçalho de cache, então o navegador servia o `index.html` anterior por
+heurística própria — quem editava a interface via a versão velha e concluía que
+a mudança não tinha subido. Agora responde `Cache-Control: no-cache`, que não
+proíbe cache: obriga a revalidar. Os estáticos já revalidavam por `etag`.
+
+**Lição registrada:** os testes de interface do projeto conferem que os `id` do
+HTML e do JS casam e que os arquivos são servidos — nenhum deles consegue ver
+que um controle é *indescobrível*. Isso só apareceu porque um humano olhou a
+tela. Screenshot de verificação não substitui a pergunta "dá para perceber que
+isso é clicável, sem clicar?".
