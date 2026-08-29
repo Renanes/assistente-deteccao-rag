@@ -381,6 +381,257 @@ modelOptions.addEventListener("change", (event) => {
   if (radio) selectModel(radio.value);
 });
 
+/* ------------------------------------------- índice de técnicas ATT&CK
+
+   O catálogo responde a pergunta que o pipeline não respondia: *o que o acervo
+   cobre?* Até aqui só dava para descobrir perguntando e vendo o que voltava.
+
+   Duas decisões de comportamento:
+
+   1. **Clicar arma um filtro, não dispara uma busca.** A página é dirigida por
+      pergunta; a técnica é a restrição, não a consulta. Clicar em "Sem técnica
+      declarada" sem pergunta nenhuma não teria o que responder.
+
+   2. **O número exibido é sempre o que o filtro devolve**, já com a expansão
+      pai↔subtécnica que o backend aplica — não o número de regras que declaram
+      o ID. Mostrar "252" e devolver 375 ao clicar seria um número que mente, e
+      é justamente por isso que a contagem vem do servidor, da mesma função que
+      monta o WHERE. */
+
+const catalogo = el("catalogo");
+const catalogList = el("catalogList");
+const catalogSearch = el("catalogSearch");
+const catalogSummary = el("catalogSummary");
+const catalogNote = el("catalogNote");
+const catalogEmpty = el("catalogEmpty");
+const activeFilters = el("activeFilters");
+const activeFilterList = el("activeFilterList");
+
+const tecnicasEscolhidas = new Set();
+let semTecnicaEscolhida = false;
+let rotuloSemTecnica = "Sem técnica declarada";
+let contagemSemTecnica = 0;
+/* Nome por ID, para o chip do filtro não repetir a varredura do DOM. */
+const nomePorId = new Map();
+
+function contaFiltros() {
+  return tecnicasEscolhidas.size + (semTecnicaEscolhida ? 1 : 0);
+}
+
+function renderChips() {
+  activeFilters.hidden = contaFiltros() === 0;
+  activeFilterList.innerHTML = "";
+
+  const itens = [...tecnicasEscolhidas].sort();
+  if (semTecnicaEscolhida) itens.unshift("__sem__");
+
+  for (const id of itens) {
+    const li = document.createElement("li");
+    const rotulo =
+      id === "__sem__" ? rotuloSemTecnica : `${id}${nomePorId.get(id) ? ` · ${nomePorId.get(id)}` : ""}`;
+    li.innerHTML = `
+      <button type="button" class="chip" data-drop="${escapeHtml(id)}">
+        <span>${escapeHtml(rotulo)}</span>
+        <span class="chip__x" aria-hidden="true">×</span>
+        <span class="visualmente-oculto">remover filtro</span>
+      </button>`;
+    activeFilterList.appendChild(li);
+  }
+}
+
+function sincronizarBotoes() {
+  for (const botao of catalogList.querySelectorAll("[data-pick]")) {
+    const id = botao.dataset.pick;
+    const ativo = id === "__sem__" ? semTecnicaEscolhida : tecnicasEscolhidas.has(id);
+    botao.setAttribute("aria-pressed", String(ativo));
+    botao.classList.toggle("is-on", ativo);
+  }
+  renderChips();
+}
+
+function alternarFiltro(id) {
+  if (id === "__sem__") {
+    semTecnicaEscolhida = !semTecnicaEscolhida;
+  } else if (tecnicasEscolhidas.has(id)) {
+    tecnicasEscolhidas.delete(id);
+  } else {
+    tecnicasEscolhidas.add(id);
+  }
+  sincronizarBotoes();
+}
+
+/* Uma linha de técnica: alvo clicável, contagem que o clique honra, e o estado
+   no ATT&CK quando ele não é o normal. */
+function linhaTecnica(item, ehSub) {
+  const nome = item.name || "";
+  if (nome) nomePorId.set(item.id, nome);
+
+  const marcas = [];
+  if (item.status === "revoked") {
+    marcas.push(
+      `<span class="tecnica__marca tecnica__marca--rev">revogada${
+        item.superseded_by ? ` → ${escapeHtml(item.superseded_by)}` : ""
+      }</span>`
+    );
+  } else if (item.status === "deprecated") {
+    marcas.push('<span class="tecnica__marca">descontinuada</span>');
+  } else if (item.status === "unknown") {
+    marcas.push('<span class="tecnica__marca tecnica__marca--rev">fora do ATT&amp;CK</span>');
+  }
+
+  // A contagem própria só aparece quando difere da que o clique devolve —
+  // repetir o mesmo número duas vezes seria ruído.
+  const diretas =
+    item.rule_count !== item.match_count
+      ? `<span class="tecnica__diretas">${emPortugues(item.rule_count)} diretas</span>`
+      : "";
+
+  return `
+    <button type="button" class="tecnica__pick${ehSub ? " tecnica__pick--sub" : ""}"
+            data-pick="${escapeHtml(item.id)}" aria-pressed="false">
+      <code class="tecnica__id">${escapeHtml(item.id)}</code>
+      <span class="tecnica__nome">${escapeHtml(nome || "—")}</span>
+      ${marcas.join("")}
+    </button>
+    <span class="tecnica__conta">${emPortugues(item.match_count)}</span>
+    ${diretas}`;
+}
+
+function renderCatalogo(data) {
+  rotuloSemTecnica = data.untagged_label;
+  contagemSemTecnica = data.untagged_count;
+
+  catalogSummary.textContent =
+    `${emPortugues(data.distinct_techniques)} técnicas · ` +
+    `${emPortugues(data.families.length)} famílias · ` +
+    `${emPortugues(data.untagged_count)} regras sem técnica`;
+
+  const pendencias = [];
+  if (data.unknown_ids.length) {
+    pendencias.push(`${data.unknown_ids.length} fora do ATT&CK (${data.unknown_ids.slice(0, 3).join(", ")})`);
+  }
+  if (data.revoked_ids.length) {
+    pendencias.push(`${data.revoked_ids.length} revogadas`);
+  }
+  if (data.deprecated_ids.length) {
+    pendencias.push(`${data.deprecated_ids.length} descontinuadas`);
+  }
+
+  catalogNote.innerHTML =
+    `O número é quantas regras o filtro devolve, já com a expansão pai↔subtécnica — ` +
+    `não quantas declaram o ID. Conferido contra o ATT&amp;CK v${escapeHtml(data.attack_version)}` +
+    (pendencias.length ? `: ${escapeHtml(pendencias.join(" · "))}.` : ".");
+
+  catalogList.innerHTML = "";
+
+  // A faceta "Sem técnica" abre a lista, e não fica no fim como sobra: são
+  // 458 regras que nenhum filtro por técnica alcança, e é a única forma de
+  // pedi-las. Enterrá-la no rodapé anularia o motivo de ela existir.
+  const semLi = document.createElement("li");
+  semLi.className = "tecnica tecnica--sem";
+  semLi.dataset.busca = "sem tecnica técnica declarada nenhuma";
+  semLi.innerHTML = `
+    <div class="tecnica__cabeca">
+      <button type="button" class="tecnica__pick" data-pick="__sem__" aria-pressed="false">
+        <code class="tecnica__id">—</code>
+        <span class="tecnica__nome">${escapeHtml(data.untagged_label)}</span>
+      </button>
+      <span class="tecnica__conta">${emPortugues(data.untagged_count)}</span>
+    </div>`;
+  catalogList.appendChild(semLi);
+
+  for (const familia of data.families) {
+    const li = document.createElement("li");
+    li.className = "tecnica";
+
+    const textos = [familia.parent.id, familia.parent.name || ""];
+    const subs = familia.subtechniques
+      .map((sub) => {
+        textos.push(sub.id, sub.name || "");
+        return `<li class="tecnica__sub">${linhaTecnica(sub, true)}</li>`;
+      })
+      .join("");
+
+    li.dataset.busca = textos.join(" ").toLowerCase();
+
+    const expandir = familia.subtechniques.length
+      ? `<button type="button" class="tecnica__mais" aria-expanded="false">
+           ${familia.subtechniques.length} sub</button>`
+      : "";
+    // Família cujo pai ninguém declara existe só pelas subtécnicas. O filtro
+    // por ele funciona (devolve a família inteira), mas dizer isso evita a
+    // leitura errada de que há regras marcadas com o ID do pai.
+    const soSubs = familia.parent_declared
+      ? ""
+      : '<span class="tecnica__marca">só via subtécnicas</span>';
+
+    li.innerHTML = `
+      <div class="tecnica__cabeca">
+        ${linhaTecnica(familia.parent, false)}
+        ${soSubs}
+        ${expandir}
+      </div>
+      ${subs ? `<ul class="tecnica__subs" hidden>${subs}</ul>` : ""}`;
+    catalogList.appendChild(li);
+  }
+
+  sincronizarBotoes();
+}
+
+catalogList.addEventListener("click", (event) => {
+  const pick = event.target.closest("[data-pick]");
+  if (pick) {
+    alternarFiltro(pick.dataset.pick);
+    return;
+  }
+  const mais = event.target.closest(".tecnica__mais");
+  if (mais) {
+    const subs = mais.closest(".tecnica").querySelector(".tecnica__subs");
+    if (subs) {
+      subs.hidden = !subs.hidden;
+      mais.setAttribute("aria-expanded", String(!subs.hidden));
+    }
+  }
+});
+
+activeFilterList.addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-drop]");
+  if (chip) alternarFiltro(chip.dataset.drop);
+});
+
+el("clearFilters").addEventListener("click", () => {
+  tecnicasEscolhidas.clear();
+  semTecnicaEscolhida = false;
+  sincronizarBotoes();
+});
+
+catalogSearch.addEventListener("input", () => {
+  const termo = catalogSearch.value.trim().toLowerCase();
+  let visiveis = 0;
+
+  for (const li of catalogList.children) {
+    const casa = !termo || (li.dataset.busca || "").includes(termo);
+    li.hidden = !casa;
+    if (casa) visiveis += 1;
+
+    // Se o termo casou uma subtécnica, abrir a família: deixar fechada
+    // esconderia justamente a linha que o filtro encontrou.
+    const subs = li.querySelector(".tecnica__subs");
+    if (casa && termo && subs) {
+      const dentro = [...subs.querySelectorAll("[data-pick]")].some((botao) =>
+        botao.textContent.toLowerCase().includes(termo)
+      );
+      if (dentro) {
+        subs.hidden = false;
+        const mais = li.querySelector(".tecnica__mais");
+        if (mais) mais.setAttribute("aria-expanded", "true");
+      }
+    }
+  }
+
+  catalogEmpty.hidden = visiveis > 0;
+});
+
 /* ------------------------------------------------------------- montagem */
 
 function renderAfericao(data) {
@@ -414,7 +665,12 @@ function renderNotices(data) {
   const relaxed = el("noticeRelaxed");
   relaxed.hidden = !data.relaxed_filters;
   if (data.relaxed_filters) {
-    const asked = data.filtered_techniques.join(", ") || "o filtro pedido";
+    // A faceta "Sem técnica" não é um ID e precisa ser nomeada por extenso —
+    // listar só `filtered_techniques` deixaria a frase falando de "o filtro
+    // pedido" quando o filtro tinha nome.
+    const partes = [...data.filtered_techniques];
+    if (data.filtered_untagged) partes.push(rotuloSemTecnica.toLowerCase());
+    const asked = partes.join(", ") || "o filtro pedido";
     el("noticeRelaxedDetail").textContent =
       `Nenhuma regra do acervo cobre ${asked}. As regras abaixo vieram de uma ` +
       "busca sem esse filtro e são apenas relacionadas.";
@@ -536,7 +792,15 @@ async function ask(question) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // `model` só vai quando há escolha válida; sem ele o servidor usa o padrão.
-      body: JSON.stringify({ question, top_k: 5, model: chosenModel }),
+      // Os filtros vão sempre: vazios, o servidor volta a deduzir a técnica do
+      // texto da pergunta, que é o comportamento de antes do catálogo existir.
+      body: JSON.stringify({
+        question,
+        top_k: 5,
+        model: chosenModel,
+        mitre_techniques: [...tecnicasEscolhidas],
+        include_untagged: semTecnicaEscolhida,
+      }),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -571,6 +835,15 @@ fetch("/api/models")
   .catch(() => {
     modelOptions.innerHTML = "";
     modelNote.textContent = "Não deu para ler o catálogo de modelos — a resposta usará o padrão.";
+  });
+
+fetch("/api/techniques")
+  .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+  .then(renderCatalogo)
+  .catch(() => {
+    catalogSummary.textContent = "indisponível";
+    catalogNote.textContent =
+      "O índice de técnicas não respondeu. Verifique se o Postgres está no ar e o corpus indexado.";
   });
 
 fetch("/api/health")

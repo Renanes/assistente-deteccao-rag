@@ -191,6 +191,47 @@ def test_corpus_map_is_drawn_from_the_real_corpus_size(js: str, html: str) -> No
     assert "prefers-reduced-motion" in js, "a cascata não respeita movimento reduzido"
 
 
+def test_catalog_reads_counts_from_the_server_not_from_the_script(js: str) -> None:
+    """O número exibido tem que ser o que o filtro devolve.
+
+    `match_count` já vem do servidor com a expansão pai↔subtécnica aplicada.
+    Se o JS passar a exibir `rule_count` como número principal, o catálogo
+    anuncia "252" e o clique devolve 375 — sem erro nenhum, só um número errado.
+    """
+    assert "item.match_count" in js, "o catálogo não exibe a contagem do filtro"
+    assert "renderCatalogo" in js and "/api/techniques" in js
+
+
+def test_catalog_sends_the_chosen_filters_with_the_question(js: str) -> None:
+    """Clicar no catálogo tem que chegar ao `/api/ask`."""
+    assert "mitre_techniques: [...tecnicasEscolhidas]" in js
+    assert "include_untagged: semTecnicaEscolhida" in js
+
+
+def test_untagged_facet_is_visible_and_named(html: str, js: str) -> None:
+    """A faceta das regras sem técnica é o motivo do catálogo existir.
+
+    O rótulo vem do servidor (`untagged_label`), então a API e a interface não
+    podem divergir no nome, e o sentinela `__sem__` nunca é um ID ATT&CK.
+    """
+    assert "data.untagged_label" in js
+    assert '"__sem__"' in js
+    assert 'id="activeFilters"' in html and 'id="catalogList"' in html
+
+
+def test_catalog_does_not_hardcode_technique_ids(js: str, html: str) -> None:
+    """A lista de técnicas é do acervo, não do código.
+
+    Mesma direção de dependência já travada para o catálogo de modelos: se um
+    ID aparecer escrito aqui, a interface passa a ofertar algo que o acervo
+    pode não conter.
+    """
+    # Só o `app.js`: o HTML cita `T1055` legitimamente, como exemplo de
+    # pergunta nos atalhos, e isso é copy e não catálogo.
+    hardcoded = sorted(set(re.findall(r"\bT\d{4}(?:\.\d{3})?\b", js)))
+    assert not hardcoded, f"app.js tem ID ATT&CK hardcoded: {hardcoded}"
+
+
 # --------------------------------------------------------------------------
 # Integração: exige banco indexado e chaves reais
 # --------------------------------------------------------------------------
@@ -244,6 +285,102 @@ def test_ask_returns_a_grounded_answer_with_citable_rules(client) -> None:  # ty
 
     # Os índices são 1..n e contíguos — o JS depende disso para casar `[n]`.
     assert [rule["index"] for rule in body["rules"]] == list(range(1, len(body["rules"]) + 1))
+
+
+@pytest.mark.integration
+def test_techniques_endpoint_inventories_the_real_corpus(client) -> None:  # type: ignore[no-untyped-def]
+    body = client.get("/api/techniques").json()
+
+    assert body["total_rules"] == body["tagged_count"] + body["untagged_count"]
+    assert body["untagged_count"] > 0, "as regras sem técnica são a razão da faceta"
+    assert body["untagged_label"]
+    assert body["families"], "nenhuma família devolvida"
+    assert body["attack_version"]
+
+    # Nenhuma família pode ser vazia, e o total da família não pode ser menor
+    # que a maior contagem dentro dela — seria rollup quebrado.
+    for family in body["families"]:
+        assert family["rule_count"] > 0
+        assert family["rule_count"] >= family["parent"]["rule_count"]
+        for sub in family["subtechniques"]:
+            assert sub["is_subtechnique"] and sub["id"].startswith(family["parent"]["id"] + ".")
+
+
+@pytest.mark.integration
+def test_catalog_counts_match_what_the_filtered_search_returns(client) -> None:  # type: ignore[no-untyped-def]
+    """A invariante do catálogo, conferida ponta a ponta contra o banco.
+
+    O teste unitário prova o rollup; este prova que o rollup e o WHERE real do
+    Postgres concordam. Confere a família mais volumosa e uma subtécnica dela,
+    que é onde a expansão pai↔subtécnica tem efeito.
+    """
+    from src.embeddings import store
+    from src.providers import get_settings
+    from src.retrieval.search import TABLE_NAME, SearchFilters, _filter_sql
+
+    body = client.get("/api/techniques").json()
+    familia = body["families"][0]
+    alvos = [familia["parent"]] + familia["subtechniques"][:3]
+
+    with store.connect(get_settings().resolved_database_url()) as conn:
+        for entry in alvos:
+            where, params = _filter_sql(SearchFilters(mitre_techniques=(entry["id"],)))
+            real = conn.execute(
+                f"SELECT count(*) FROM {TABLE_NAME} WHERE {where}", params
+            ).fetchone()[0]
+            assert real == entry["match_count"], (
+                f"{entry['id']}: catálogo diz {entry['match_count']}, filtro devolve {real}"
+            )
+
+        where, params = _filter_sql(SearchFilters(include_untagged=True))
+        real = conn.execute(
+            f"SELECT count(*) FROM {TABLE_NAME} WHERE {where}", params
+        ).fetchone()[0]
+        assert real == body["untagged_count"]
+
+
+@pytest.mark.integration
+def test_ask_honours_an_explicit_technique_filter(client) -> None:  # type: ignore[no-untyped-def]
+    """Filtro escolhido no catálogo vence a técnica inferida da pergunta."""
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "quais regras existem aqui?",
+            "top_k": 5,
+            "mitre_techniques": ["T1003.001"],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["filtered_techniques"] == ["T1003.001"]
+    assert not body["relaxed_filters"], "T1003.001 existe no acervo; não devia relaxar"
+    for rule in body["rules"]:
+        assert any(
+            technique in ("T1003.001", "T1003") for technique in rule["mitre_techniques"]
+        ), f"{rule['rule_uid']} escapou do filtro: {rule['mitre_techniques']}"
+
+
+@pytest.mark.integration
+def test_ask_with_the_untagged_facet_returns_only_untagged_rules(client) -> None:  # type: ignore[no-untyped-def]
+    """A faceta é a única forma de alcançar as regras sem técnica."""
+    response = client.post(
+        "/api/ask",
+        json={
+            "question": "regras sobre acesso suspeito a contas",
+            "top_k": 5,
+            "include_untagged": True,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["filtered_untagged"] is True
+    assert body["rules"], "a faceta devolveu vazio"
+    for rule in body["rules"]:
+        assert rule["mitre_techniques"] == [], (
+            f"{rule['rule_uid']} tem técnica e não devia estar aqui"
+        )
 
 
 @pytest.mark.integration

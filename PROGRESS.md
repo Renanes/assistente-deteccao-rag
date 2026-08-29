@@ -2,8 +2,8 @@
 
 ## Status atual
 - Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo.**
-  Em manutenção pós-roadmap (ver sessão de 2026-08-26).
-- Última atualização: 2026-08-26
+  Em manutenção pós-roadmap (ver sessão de 2026-08-29).
+- Última atualização: 2026-08-29
 
 ## Decisões de arquitetura
 - **Git dedicado para este projeto** — `agente_detection` estava aninhado
@@ -289,6 +289,71 @@
   do Google Fonts). O renderizador de markdown é ~60 linhas escritas aqui e
   escapa HTML antes de qualquer coisa, porque o texto vem de um LLM.
 
+- **NÃO categorizar as 458 regras sem técnica ATT&CK; expô-las como faceta** —
+  a pergunta era se valeria preencher a técnica das regras que não declaram
+  nenhuma, para o filtro alcançar 100% do acervo. Recusado, e o motivo é o
+  mesmo que já governa o filtro: ele é **rígido**, tratado como verdade
+  (`T1027` numa busca por `T1055` está *errada*, não "menos relevante").
+  Preencher por inferência — regex mais solto, heurística de texto ou um LLM
+  lendo a descrição — misturaria na mesma coluna dois metadados de
+  confiabilidade incomparável: técnica **declarada pela fonte** (verificável, é
+  o que sustenta o MRR de 0,879 medido na Fase 6) e técnica **adivinhada aqui**.
+  É a mesma decisão já tomada para a severidade do ESCU: `None` em vez de
+  derivar de `type`, porque derivar seria inventar informação.
+  A saída é a faceta "Sem técnica declarada": as 458 regras deixam de ser um
+  buraco silencioso e viram um valor com contagem, pedível. Se um dia a
+  inferência for feita, que seja em **coluna própria**, marcada como inferida e
+  fora do filtro rígido.
+- **O catálogo de técnicas e a faceta são a mesma agregação** — construir a
+  faceta separada do índice duplicaria a matemática de rollup, e duas
+  implementações divergem na primeira mudança. `src/retrieval/techniques.py` é
+  a fonte única; a API e a interface leem dela.
+- **`expand_technique` virou função compartilhada, e é o que impede o número de
+  mentir** — o filtro expande `T1055` para `T1055.%` e `T1218.011` para
+  `T1218`. Se o catálogo contasse por conta própria, exibiria "T1059.001 — 252
+  regras" e o clique devolveria 375, sem erro nenhum: só um número errado. Agora
+  `_filter_sql` e o rollup chamam a mesma função, e **o número exibido é sempre
+  o que o filtro devolve** (`match_count`), com a contagem própria como
+  secundária. Conferido contra o Postgres real nas 473 técnicas do acervo: zero
+  divergência. A propriedade ficou travada em teste que roda sem banco.
+- **Agrupamento por família de técnica, não por tática — decidido medindo** — a
+  intenção inicial era agrupar por tática, que é o eixo legível para um
+  analista. A coluna `mitre_tactics` não sustenta: 67 valores distintos para as
+  14 táticas reais, incluindo ID de tática cru (`TA0006`), **ID de software**
+  (`S0029`, 11 regras), variantes de grafia da mesma tática (`Defense Evasion` e
+  `Defense-Impairment` como valores separados) e um valor único contendo quatro
+  táticas separadas por vírgula. 2.228 chunks (39%) não têm tática nenhuma. A
+  família sai do próprio ID, não depende de dado externo e é o eixo que o filtro
+  já expande. **A limpeza de `mitre_tactics` fica registrada como pendência.**
+- **Nomes ATT&CK vêm de arquivo gerado e commitado, não de chamada em runtime**
+  — o acervo guarda só o ID, e nenhuma das três fontes dá o nome de forma
+  utilizável (Sigma e ESCU não trazem nenhum; só 148 das 916 regras YARA-L
+  trazem `mitre_attack_technique`). Um índice de 473 IDs nus é ilegível.
+  `python -m src.ingestion.attack_names` baixa os três bundles STIX do MITRE,
+  extrai ~1% deles e grava `data/attack/techniques.json` (105 KB, 1.140
+  técnicas, ATT&CK v19.2). Buscar em runtime trocaria uma dependência de dados
+  por uma de rede num caminho que precisa funcionar offline, com 35 MB de
+  download. O arquivo fica fora de `data/raw/` e `data/normalized/`, que são
+  gitignored, e é auditável em `git diff`.
+- **O segundo produto do mapa de nomes é validação, e ela já rendeu** — antes
+  dele, `T1685` parecia ID inválido: 276 regras, um volume alto demais para um
+  ID que eu não reconhecia. O mapa resolveu: é "Disable or Modify Tools", a
+  renumeração de `T1562` no ATT&CK v19. O acervo usa **as duas grafias** — 4
+  técnicas revogadas (`T1562`, `T1562.001`, `T1562.008`, `T1070.001`) convivem
+  com as sucessoras. Nenhum ID do acervo está fora do ATT&CK (0 desconhecidos,
+  0 descontinuados), o que também valida os parsers da Fase 1.
+- **Clicar no catálogo arma um filtro, não dispara uma busca** — a página é
+  dirigida por pergunta; a técnica é a restrição, não a consulta. "Sem técnica
+  declarada" sem pergunta nenhuma não teria o que responder. O filtro explícito
+  **vence** a técnica inferida do texto: quem clicou já disse o que queria.
+- **`include_untagged` é campo próprio no `SearchFilters`, não valor sentinela**
+  — um `"__sem__"` dentro de `mitre_techniques` passaria pela expansão de
+  técnica (que não faz sentido para ele) e vazaria para `filtered_techniques` na
+  resposta da API e para o aviso de filtro relaxado, onde apareceria como se
+  fosse um ID ATT&CK. Combinado com técnicas, o efeito é **união**, não
+  interseção — que seria sempre vazia, já que nenhuma regra pode declarar
+  `T1055` e não declarar nada ao mesmo tempo.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -348,6 +413,25 @@
   num celular de verdade antes de considerar isso verificado.
 - **`--reload` do uvicorn não foi testado.** A demo foi validada com o servidor
   em modo normal.
+- **`mitre_tactics` está poluída e hoje não é usada por nada.** 67 valores
+  distintos para 14 táticas reais: ID de tática cru (`TA0006`), ID de software
+  (`S0029`), variantes de grafia da mesma tática e um valor único com quatro
+  táticas separadas por vírgula; 39% dos chunks sem tática nenhuma. Foi o que
+  impediu o catálogo de agrupar por tática (ver Decisões). Limpar exigiria um
+  vocabulário controlado como o de plataformas da Fase 1 — o mapa ATT&CK
+  commitado agora dá a tabela de referência para isso. Agrupar por tática é o
+  eixo mais legível para um analista, então isso tem valor real.
+- **O acervo usa técnica revogada e sucessora ao mesmo tempo**, e o filtro não
+  atravessa a revogação: pedir `T1562` não devolve as 276 regras de `T1685`, e
+  vice-versa. São 4 pares (`T1562`, `T1562.001`, `T1562.008`, `T1070.001`). O
+  catálogo **mostra** a revogação e para onde ela aponta, que é honesto, mas não
+  age sobre ela. Expandir o filtro pelas revogações é mudança de comportamento
+  do retrieval e, pela cultura do projeto, deveria ser medida na avaliação antes
+  de virar padrão — não implementada em silêncio.
+- **O catálogo não lista as regras de uma técnica.** Clicar arma um filtro para
+  a próxima pergunta; não há como navegar as 143 regras de `T1003.001` sem
+  perguntar algo. Um endpoint de listagem paginada resolveria, mas é
+  funcionalidade nova e não estava no pedido.
 
 ## Próximos passos
 
@@ -995,3 +1079,79 @@ foi ali que as cores reais puderam ser conferidas pela primeira vez — o botão
 sai em `rgb(217,164,65)`, o latão do plano, nas três larguras.
 
 `pytest` verde: 187 testes.
+
+### 2026-08-29 — Sessão 11 (Claude Code)
+
+**Índice de técnicas ATT&CK e a faceta "Sem técnica declarada".** Partiu de uma
+pergunta do usuário — se valeria categorizar 100% do acervo com alguma técnica,
+já que ele queria construir busca por técnica.
+
+**A resposta foi não, e virou desenho.** Forçar 100% preencheria por inferência
+a coluna que o filtro rígido trata como verdade, misturando técnica declarada
+pela fonte com técnica adivinhada aqui. O raciocínio completo está em Decisões.
+O que substituiu a ideia: expor as 458 regras como faceta pedível, e construir o
+índice do acervo — que é onde a faceta ganha sentido, porque é lá que ela deixa
+de ser um buraco e vira um número.
+
+**Medições feitas antes de decidir, e duas mudaram o desenho:**
+
+| Medição | Valor | Efeito |
+|---|---|---|
+| Regras sem técnica | 458 de 5.664 (8,1%) | vira a faceta |
+| Técnicas distintas | 473, em 187 famílias | todas bem formadas |
+| `mitre_tactics` | 67 valores para 14 táticas reais | **matou** o agrupamento por tática |
+| Rollup do inventário | 604 ms → ~70 ms | otimizado; sem cache |
+
+O caso da `mitre_tactics` é o mais instrutivo: eu ia agrupar o catálogo por
+tática, que é o eixo legível para um analista, e a medição mostrou a coluna
+carregando ID de software (`S0029`), ID de tática cru e blobs com vírgula. Virou
+pendência em vez de fundação.
+
+**O achado que só o dado externo resolveu.** `T1685` aparecia em 276 regras e eu
+não conseguia afirmar se era ID válido ou artefato de parsing — a suspeita era
+plausível pelo volume. O mapa ATT&CK resolveu: é "Disable or Modify Tools", a
+renumeração de `T1562` no v19.2, e o acervo usa as duas grafias. Zero IDs fora
+do ATT&CK entre os 473, o que também é um atestado dos parsers da Fase 1.
+Registrar isto importa porque a conclusão intuitiva (`T1685` é lixo) estava
+errada e teria levado a "limpar" dado bom.
+
+**A invariante que dá sentido ao catálogo.** O número exibido tem que ser o que
+o clique devolve. Como o filtro expande `T1055` → `T1055.%` e `T1218.011` →
+`T1218`, uma contagem calculada em separado exibiria "T1059.001 — 252" e o
+clique devolveria 375. `expand_technique` virou função única, usada pelo
+`_filter_sql` e pelo rollup. Conferido contra o Postgres nas **482 entradas**
+(473 técnicas + 9 pais sintéticos): **zero divergência**. Travado em teste de
+propriedade que roda sem banco, mais um de integração contra o WHERE real.
+
+**O que foi entregue:**
+- `src/ingestion/attack_names.py` — gerador offline do mapa ATT&CK, com
+  `--check` para conferir o acervo contra ele.
+- `data/attack/techniques.json` — 1.140 técnicas, 105 KB, ATT&CK v19.2,
+  commitado (fora dos caminhos gitignored).
+- `src/retrieval/techniques.py` — inventário, rollup e a expansão compartilhada.
+- `SearchFilters.include_untagged` e o `OR cardinality(...) = 0` no filtro.
+- `GET /api/techniques`; `mitre_techniques` e `include_untagged` no `/api/ask`.
+- Interface: índice recolhível dentro da seção do mapa, busca por ID ou nome,
+  chips de filtro armado junto do campo de pergunta.
+- 40 testes novos (`tests/test_techniques.py` + adições em `test_api.py`).
+  **213 no total, todos verdes**, 9 deles de integração contra a base real.
+
+**Um bug meu, corrigido durante a sessão:** o leitor de versão do bundle STIX
+iterava sobre `x_mitre_version` achando que era lista. "19.2" iterado devolve
+"1" — uma versão plausível o bastante para eu ter commitado o arquivo errado
+sem notar. Só apareceu porque olhei a saída do script em vez de confiar no
+"gravado com sucesso".
+
+**Verificado no navegador**, não só em teste: catálogo com 188 linhas, faceta no
+topo com 458, busca por "lsass" trazendo `T1003` e `T1547` (esta por "LSASS
+Driver") com as subtécnicas abrindo sozinhas, e as duas consultas ponta a ponta
+— filtro `T1003.001` devolvendo 5 regras todas marcadas com ele, e a faceta "Sem
+técnica" devolvendo 5 regras todas com `mitre_techniques` vazio, que é
+exatamente o conjunto que nenhum filtro alcançava antes. Responsividade
+reconferida em 414 px pela técnica do iframe (o `resize_window` segue reportando
+sucesso sem alterar o `innerWidth`).
+
+**Estado em que a sessão foi deixada:** `pytest` verde (213 testes), servidor do
+usuário na porta 8000 preservado, alterações **não commitadas** — o diff da
+sessão anterior (reconstrução da interface) também segue sem commit no mesmo
+working tree.

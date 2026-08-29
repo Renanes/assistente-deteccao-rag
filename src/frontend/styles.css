@@ -377,6 +377,282 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .acervo__legenda b { color: var(--latao); font-weight: 500; }
 
+/* -------------------------------------------------- índice de técnicas
+
+   O mapa gasta a ousadia da página; o índice é o oposto por decisão — denso,
+   monoespaçado, alinhado à direita nas contagens, como o índice remissivo no
+   fim de um manual de referência. Duas peças chamativas competindo dentro da
+   mesma seção anulariam as duas. */
+
+.catalogo {
+  margin-top: calc(var(--passo) * 4);
+  border-top: var(--sulco);
+}
+
+.catalogo__abrir {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 3) 0 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--vapor);
+  list-style: none;
+}
+
+.catalogo__abrir::-webkit-details-marker { display: none; }
+
+.catalogo__abrir::before {
+  content: "▸";
+  color: var(--latao);
+  transition: transform 120ms ease;
+}
+
+.catalogo[open] > .catalogo__abrir::before { transform: rotate(90deg); }
+.catalogo__abrir:hover { color: var(--luz); }
+
+.catalogo__abrir-titulo {
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--luz);
+}
+
+.catalogo__abrir-resumo { margin-left: auto; color: #5d7f8c; }
+
+.catalogo__corpo { padding-top: calc(var(--passo) * 3); }
+
+.catalogo__nota {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--vapor);
+}
+
+.catalogo__busca { display: block; margin: calc(var(--passo) * 3) 0; }
+
+.catalogo__busca input {
+  width: 100%;
+  padding: calc(var(--passo) * 2) calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+  color: var(--luz);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.catalogo__busca input::placeholder { color: #5d7f8c; }
+.catalogo__busca input:hover { border-color: #2a5a6d; }
+
+.catalogo__lista {
+  /* Teto de altura com rolagem própria: 187 famílias empurrariam a pergunta
+     para fora da tela, e a pergunta é o que a página existe para fazer. */
+  max-height: 460px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--sulco);
+}
+
+.catalogo__vazio {
+  padding: calc(var(--passo) * 4) 0;
+  font-size: 12.5px;
+  color: var(--vapor);
+}
+
+.tecnica { border-bottom: var(--sulco); }
+
+.tecnica__cabeca,
+.tecnica__sub {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 1.5) calc(var(--passo) * 2);
+}
+
+.tecnica__sub { padding-left: calc(var(--passo) * 7); }
+.tecnica__cabeca:hover,
+.tecnica__sub:hover { background: rgba(22, 58, 72, 0.5); }
+
+.tecnica--sem {
+  /* A faceta das 458 regras sem técnica não é uma técnica; o sulco em latão
+     marca que ela é de outra natureza sem precisar de uma legenda dizendo. */
+  border-left: 2px solid var(--latao);
+  background: rgba(43, 42, 29, 0.35);
+}
+
+.tecnica__pick {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--luz);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tecnica__pick:hover .tecnica__nome { color: var(--latao); }
+
+.tecnica__pick.is-on .tecnica__id {
+  background: var(--latao);
+  border-color: var(--latao);
+  color: var(--petroleo);
+}
+
+.tecnica__pick.is-on .tecnica__nome { color: var(--latao); }
+
+.tecnica__id {
+  flex: none;
+  padding: 1px calc(var(--passo) * 1.5);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  font-size: 11px;
+  color: var(--vapor);
+}
+
+.tecnica__pick--sub .tecnica__id { font-size: 10.5px; }
+
+.tecnica__nome {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tecnica__conta {
+  flex: none;
+  min-width: 4ch;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-align: right;
+  color: var(--luz);
+}
+
+.tecnica__diretas {
+  flex: none;
+  min-width: 9ch;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  text-align: right;
+  color: #5d7f8c;
+}
+
+.tecnica__marca {
+  flex: none;
+  padding: 0 calc(var(--passo) * 1.5);
+  border-radius: 2px;
+  background: var(--realce);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--vapor);
+}
+
+.tecnica__marca--rev {
+  background: var(--ressalva-fraco);
+  color: var(--ressalva);
+}
+
+.tecnica__mais {
+  flex: none;
+  padding: 1px calc(var(--passo) * 1.5);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  background: none;
+  color: var(--vapor);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.tecnica__mais:hover { border-color: var(--latao); color: var(--latao); }
+
+.tecnica__subs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: var(--sulco);
+  background: rgba(11, 31, 40, 0.45);
+}
+
+/* ------------------------------------------------------- filtros armados */
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 2);
+  margin-top: calc(var(--passo) * 3);
+}
+
+.filtros__rotulo {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--vapor);
+}
+
+.filtros__lista {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 1.5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--passo) * 1.5);
+  padding: calc(var(--passo) * 0.75) calc(var(--passo) * 2);
+  border: 1px solid var(--latao);
+  border-radius: 2px;
+  background: var(--latao-fraco);
+  color: var(--latao);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip:hover { background: var(--latao); color: var(--petroleo); }
+.chip__x { font-size: 13px; line-height: 1; }
+
+.filtros__limpar {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--vapor);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.filtros__limpar:hover { color: var(--ressalva); }
+
+/* Rótulo lido por leitor de tela, invisível na tela. */
+.visualmente-oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ----------------------------------------------------------------- estado */
 
 .estado {
@@ -714,4 +990,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
      embaralhariam a qual provedor pertencem. */
   .modelos__grupos { gap: calc(var(--passo) * 5); }
   .modelos__grupo { flex: 1 1 100%; }
+
+  /* O índice de técnicas em coluna estreita: o nome ganha a linha inteira e a
+     contagem desce para junto do ID. Mantido lado a lado, o nome truncaria em
+     três ou quatro caracteres e a linha viraria só um ID com um número. */
+  .catalogo__abrir-resumo { margin-left: 0; flex-basis: 100%; }
+  .catalogo__lista { max-height: 60vh; }
+  .tecnica__cabeca,
+  .tecnica__sub { flex-wrap: wrap; }
+  .tecnica__sub { padding-left: calc(var(--passo) * 4); }
+  .tecnica__pick { flex: 1 1 100%; flex-wrap: wrap; }
+  .tecnica__nome { white-space: normal; }
+  .tecnica__conta { min-width: 0; margin-left: auto; }
+  .tecnica__diretas { min-width: 0; }
 }

@@ -74,6 +74,15 @@
         <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
       </ul>
 
+      <!-- Filtros armados no catálogo. Fica junto do campo de pergunta, e não
+           junto do catálogo, porque é aqui que ele age: quem digita precisa ver
+           o que está restringindo a próxima consulta sem rolar a página. -->
+      <div class="filtros" id="activeFilters" hidden>
+        <span class="filtros__rotulo">Restrito a</span>
+        <ul class="filtros__lista" id="activeFilterList"></ul>
+        <button type="button" class="filtros__limpar" id="clearFilters">limpar</button>
+      </div>
+
       <fieldset class="modelos">
         <legend class="modelos__titulo">
           Modelo que redige a resposta
@@ -101,6 +110,31 @@
     <p class="acervo__legenda" id="corpusLegend">
       Uma célula por regra indexada. A consulta acende as que responderem.
     </p>
+
+    <!-- O catálogo é o detalhamento do mapa: as mesmas regras, agrupadas pelo
+         que cobrem. Recolhido por padrão — 187 famílias abertas afogariam a
+         pergunta, que é o que a página existe para fazer. -->
+    <details class="catalogo" id="catalogo">
+      <summary class="catalogo__abrir">
+        <span class="catalogo__abrir-titulo">Índice de técnicas ATT&amp;CK</span>
+        <span class="catalogo__abrir-resumo" id="catalogSummary">carregando…</span>
+      </summary>
+
+      <div class="catalogo__corpo">
+        <p class="catalogo__nota" id="catalogNote"></p>
+
+        <label class="catalogo__busca">
+          <span class="visualmente-oculto">Filtrar técnicas por ID ou nome</span>
+          <input type="search" id="catalogSearch" autocomplete="off"
+                 placeholder="filtrar por ID ou nome — lsass, T1003, registry…">
+        </label>
+
+        <ul class="catalogo__lista" id="catalogList"></ul>
+        <p class="catalogo__vazio" id="catalogEmpty" hidden>
+          Nenhuma técnica do acervo corresponde a esse texto.
+        </p>
+      </div>
+    </details>
   </section>
 
   <section class="estado" id="stateIdle">

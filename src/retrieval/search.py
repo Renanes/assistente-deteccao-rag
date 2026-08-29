@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from ..providers import EmbeddingProvider
 from .fusion import RRF_K, FusedResult, RankedList, reciprocal_rank_fusion
 from .query import ParsedQuery, build_tsquery, parse_query
+from .techniques import expand_technique
 
 TABLE_NAME = "rule_chunks"
 
@@ -83,10 +84,25 @@ class SearchFilters:
     mitre_techniques: tuple[str, ...] = ()
     platforms: tuple[str, ...] = ()
     sources: tuple[str, ...] = ()
+    #: Faceta "Sem técnica declarada": inclui as regras cujo `mitre_techniques`
+    #: está vazio. 458 das 5.664 regras estão nesse caso (8,1%), e até aqui elas
+    #: eram invisíveis para qualquer filtro por técnica — não havia como pedi-las.
+    #:
+    #: É um campo próprio, e não um valor sentinela dentro de `mitre_techniques`,
+    #: por dois motivos. Um sentinela passaria pela expansão de técnica, que não
+    #: faz sentido para ele; e vazaria para `filtered_techniques` na resposta da
+    #: API e para o aviso de filtro relaxado, onde seria exibido como se fosse um
+    #: ID ATT&CK.
+    #:
+    #: Combinado com `mitre_techniques`, o efeito é união ("regras de T1055 **ou**
+    #: sem técnica"), não interseção — que seria sempre vazia.
+    include_untagged: bool = False
 
     @property
     def is_empty(self) -> bool:
-        return not (self.mitre_techniques or self.platforms or self.sources)
+        return not (
+            self.mitre_techniques or self.platforms or self.sources or self.include_untagged
+        )
 
     @classmethod
     def from_parsed(cls, parsed: ParsedQuery) -> SearchFilters:
@@ -145,24 +161,38 @@ def _filter_sql(filters: SearchFilters) -> tuple[str, dict[str, object]]:
     clauses: list[str] = []
     params: dict[str, object] = {}
 
+    # `cardinality(...) = 0` é a faceta "Sem técnica declarada". Com técnicas
+    # pedidas junto, os dois viram uma disjunção: quem marcou T1055 e também
+    # "Sem técnica" quer a união, e não o conjunto vazio que a interseção daria.
+    untagged_clause = "cardinality(mitre_techniques) = 0"
+
     if filters.mitre_techniques:
         exact: list[str] = []
         prefixes: list[str] = []
         for technique in filters.mitre_techniques:
-            exact.append(technique)
-            if "." in technique:
-                # Subtécnica citada: a regra do pai também é relevante.
-                exact.append(technique.split(".", 1)[0])
-            else:
-                # Técnica-pai citada: casa as subtécnicas dela.
-                prefixes.append(f"{technique}.%")
+            # A expansão bidirecional vive em `techniques.expand_technique`, e é
+            # a mesma função que o inventário do acervo usa para contar. Duas
+            # implementações fariam o catálogo anunciar um número e o clique
+            # devolver outro.
+            technique_exact, technique_prefixes = expand_technique(technique)
+            exact.extend(technique_exact)
+            prefixes.extend(technique_prefixes)
 
-        clauses.append(
+        technique_clause = (
             "EXISTS (SELECT 1 FROM unnest(mitre_techniques) AS t "
             "WHERE t = ANY(%(mitre_exact)s) OR t LIKE ANY(%(mitre_prefixes)s))"
         )
+        clauses.append(
+            f"({technique_clause} OR {untagged_clause})"
+            if filters.include_untagged
+            else technique_clause
+        )
         params["mitre_exact"] = sorted(set(exact))
+        # Lista vazia em `LIKE ANY` nunca casa nada, mas `%` casaria o corpus
+        # inteiro — o erro silencioso clássico aqui. O placeholder é `""`.
         params["mitre_prefixes"] = prefixes or [""]
+    elif filters.include_untagged:
+        clauses.append(untagged_clause)
 
     if filters.platforms:
         # `&&` é interseção de arrays e usa o índice GIN de `platforms`.

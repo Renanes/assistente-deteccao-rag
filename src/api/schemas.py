@@ -20,6 +20,14 @@ class AskRequest(BaseModel):
     #: existe requisição com par provedor/modelo contraditório.
     model: str | None = Field(default=None, max_length=100)
 
+    #: Filtro explícito por técnica, escolhido no catálogo. Quando vem, **vence**
+    #: a técnica que seria inferida do texto da pergunta: quem clicou numa
+    #: técnica disse o que queria, e adivinhar por cima disso só poderia piorar.
+    mitre_techniques: list[str] = Field(default_factory=list, max_length=20)
+    #: Faceta "Sem técnica declarada". Separada da lista acima porque não é um
+    #: ID ATT&CK — ver `SearchFilters.include_untagged`.
+    include_untagged: bool = False
+
 
 class RuleOut(BaseModel):
     """Uma regra recuperada, como a interface precisa dela."""
@@ -68,6 +76,8 @@ class AskResponse(BaseModel):
     #: relacionados, e a interface precisa dizer isso.
     relaxed_filters: bool = False
     filtered_techniques: list[str] = Field(default_factory=list)
+    #: A busca foi restrita às regras sem técnica declarada.
+    filtered_untagged: bool = False
     answered_without_model: bool = False
     answer_truncated: bool = False
 
@@ -101,3 +111,51 @@ class ModelOut(BaseModel):
 class ModelsResponse(BaseModel):
     models: list[ModelOut] = Field(default_factory=list)
     default_model: str
+
+
+class TechniqueOut(BaseModel):
+    """Uma técnica do acervo, como o catálogo a exibe."""
+
+    id: str
+    name: str | None = Field(default=None, description="Nome oficial do ATT&CK, se conhecido.")
+    status: str = Field(description="ok | deprecated | revoked | unknown.")
+    superseded_by: str | None = None
+    is_subtechnique: bool = False
+
+    rule_count: int = Field(description="Regras que declaram exatamente este ID.")
+    match_count: int = Field(
+        description="Regras que o filtro devolve ao selecionar este ID, já com a expansão."
+    )
+
+
+class TechniqueFamilyOut(BaseModel):
+    """Uma técnica-pai com as subtécnicas presentes no acervo."""
+
+    parent: TechniqueOut
+    subtechniques: list[TechniqueOut] = Field(default_factory=list)
+    rule_count: int
+    parent_declared: bool = Field(
+        description="False quando nenhuma regra declara o pai — a família existe só pelas subtécnicas."
+    )
+
+
+class TechniquesResponse(BaseModel):
+    """O inventário de técnicas do acervo indexado.
+
+    Expõe os IDs problemáticos (`unknown_ids`, `deprecated_ids`, `revoked_ids`)
+    em vez de filtrá-los. São achados sobre a qualidade das fontes públicas, e
+    esconder é o que tornaria o catálogo uma vitrine em vez de um inventário.
+    """
+
+    families: list[TechniqueFamilyOut] = Field(default_factory=list)
+
+    total_rules: int
+    untagged_count: int = Field(description="Regras sem nenhuma técnica declarada.")
+    untagged_label: str
+    tagged_count: int
+    distinct_techniques: int
+
+    attack_version: str
+    unknown_ids: list[str] = Field(default_factory=list)
+    deprecated_ids: list[str] = Field(default_factory=list)
+    revoked_ids: list[str] = Field(default_factory=list)

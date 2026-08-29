@@ -38,7 +38,8 @@ from ..providers import (
     get_settings,
 )
 from ..rag.pipeline import RagPipeline
-from ..retrieval.search import HybridRetriever
+from ..retrieval.search import HybridRetriever, SearchFilters
+from ..retrieval.techniques import UNTAGGED_LABEL, load_corpus_techniques
 from .schemas import (
     AskRequest,
     AskResponse,
@@ -47,6 +48,9 @@ from .schemas import (
     ModelOut,
     ModelsResponse,
     RuleOut,
+    TechniqueFamilyOut,
+    TechniqueOut,
+    TechniquesResponse,
 )
 
 FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
@@ -160,6 +164,42 @@ def models() -> ModelsResponse:
     )
 
 
+@app.get("/api/techniques", response_model=TechniquesResponse)
+def techniques() -> TechniquesResponse:
+    """O inventário de técnicas ATT&CK do acervo indexado.
+
+    Sem cache: a agregação custa ~70 ms sobre as 5.664 linhas, e um cache
+    precisaria ser invalidado a cada reindexação para não servir número velho.
+    Cache aqui seria complexidade comprando um ganho que não existe.
+    """
+    try:
+        with _connect() as conn:
+            inventory = load_corpus_techniques(conn)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {error}") from error
+
+    return TechniquesResponse(
+        families=[
+            TechniqueFamilyOut(
+                parent=TechniqueOut(**family.parent.model_dump()),
+                subtechniques=[TechniqueOut(**item.model_dump()) for item in family.subtechniques],
+                rule_count=family.rule_count,
+                parent_declared=family.parent_declared,
+            )
+            for family in inventory.families
+        ],
+        total_rules=inventory.total_rules,
+        untagged_count=inventory.untagged_count,
+        untagged_label=UNTAGGED_LABEL,
+        tagged_count=inventory.tagged_count,
+        distinct_techniques=inventory.distinct_techniques,
+        attack_version=inventory.attack_version,
+        unknown_ids=inventory.unknown_ids,
+        deprecated_ids=inventory.deprecated_ids,
+        revoked_ids=inventory.revoked_ids,
+    )
+
+
 @app.post("/api/ask", response_model=AskResponse)
 def ask(request: AskRequest) -> AskResponse:
     assert runtime.embedding is not None and runtime.llm is not None
@@ -171,13 +211,23 @@ def ask(request: AskRequest) -> AskResponse:
     except ProviderError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
+    # Filtro explícito do catálogo. `None` preserva o caminho antigo, em que os
+    # filtros são deduzidos do texto da pergunta; qualquer escolha na interface
+    # substitui a dedução por inteiro, porque quem clicou já disse o que queria.
+    filters = None
+    if request.mitre_techniques or request.include_untagged:
+        filters = SearchFilters(
+            mitre_techniques=tuple(dict.fromkeys(request.mitre_techniques)),
+            include_untagged=request.include_untagged,
+        )
+
     started = time.perf_counter()
     try:
         with _connect() as conn:
             pipeline = RagPipeline(
                 HybridRetriever(conn, runtime.embedding), llm, top_k=request.top_k
             )
-            result = pipeline.answer(request.question)
+            result = pipeline.answer(request.question, filters=filters)
     except Exception as error:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -216,6 +266,7 @@ def ask(request: AskRequest) -> AskResponse:
         ),
         relaxed_filters=bool(result.search and result.search.relaxed_filters),
         filtered_techniques=list(result.search.filters.mitre_techniques) if result.search else [],
+        filtered_untagged=bool(result.search and result.search.filters.include_untagged),
         answered_without_model=result.answered_without_model,
         answer_truncated=result.answer_truncated,
         llm_provider=result.llm_provider,
