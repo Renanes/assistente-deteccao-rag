@@ -231,6 +231,26 @@ def ask(request: AskRequest) -> AskResponse:
 # rodar sem contexto adicional.
 if FRONTEND_DIR.is_dir():
 
+    @app.middleware("http")
+    async def revalidar_estaticos(request, call_next):
+        """Obriga o navegador a revalidar o CSS e o JS da interface.
+
+        Sem `Cache-Control`, o navegador aplica frescor heurístico próprio e
+        pode servir uma folha de estilo antiga junto com um HTML novo. Como o
+        HTML é `no-cache` e os estáticos não eram, essa combinação acontecia de
+        verdade: markup novo com nomes de classe velhos, ou seja, a página sem
+        estilo nenhum. Foi relatado por quem usa, depois da reconstrução da
+        interface.
+
+        `no-cache` não proíbe o cache — obriga a perguntar se mudou. O `etag`
+        que o StaticFiles já emite faz a resposta ser um 304 barato quando nada
+        mudou, então o custo é um ida-e-volta por arquivo, não um download.
+        """
+        response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/")
     def index() -> FileResponse:
         # `no-cache` manda revalidar a cada carga — não proíbe o cache, obriga a

@@ -874,3 +874,124 @@ HTML e do JS casam e que os arquivos são servidos — nenhum deles consegue ver
 que um controle é *indescobrível*. Isso só apareceu porque um humano olhou a
 tela. Screenshot de verificação não substitui a pergunta "dá para perceber que
 isso é clicável, sem clicar?".
+
+### 2026-08-27 — Sessão 10 (Claude Code)
+
+**O que foi feito:** reconstrução do front-end, a pedido do usuário ("está muito
+amador"), seguindo a skill `frontend-design` que ele colocou na raiz do repo
+como `SKILL.md`.
+
+**Diagnóstico antes de desenhar.** A skill lista três aparências em que design
+gerado por IA se acomoda por padrão. A interface da Fase 7 estava em cima de
+duas: layout de jornal com réguas finas e raio quase zero, e — no tema escuro —
+fundo quase preto com um único accent verde. Somado a Space Grotesk + IBM Plex,
+que é o par tipográfico reflexo, o resultado lia como template. A crítica do
+usuário estava correta e tinha causa identificável.
+
+**Decisões de design desta reconstrução:**
+
+- **Conceito: instrumento de bancada, não documento.** Quem usa isto passa o dia
+  em console de SIEM. A identidade vem de painel de instrumento — petróleo com
+  matiz visível (nunca preto), superfícies fresadas, detalhamento em latão.
+- **Paleta de 6 nomeadas** (`--petroleo #0B1F28`, `--bancada #102C38`,
+  `--fresa #1D4454`, `--luz #E6F0F2`, `--vapor #86A6B0`, `--latao #D9A441`),
+  mais verde de aferição e âmbar de ressalva em superfície mínima. Dois accents
+  semânticos em vez de um único vibrante: é o que separa a paleta do formato
+  "quase preto com um accent" que a skill manda evitar.
+- **Tipografia com três papéis**: Chakra Petch (display, angular, de painel,
+  usada com parcimônia), Archivo (corpo), JetBrains Mono (dados, identificadores
+  e lógica de detecção). Nenhuma é a escolha reflexa, e há teste exigindo as
+  três famílias.
+- **Assinatura: o mapa do acervo.** Uma célula por regra indexada — 5.664 — e a
+  consulta *acende* as que responderam. É o produto inteiro numa imagem:
+  recuperação é estreitamento. Desenhado em canvas, e não em 5.664 nós no DOM.
+  A posição de cada regra vem de um hash FNV-1a do `rule_uid`, então a mesma
+  regra cai sempre na mesma célula — sem estabilidade o mapa não significaria
+  nada. A cascata de acendimento respeita `prefers-reduced-motion`.
+- **Sem numeral nos três passos do percurso.** O nome de cada etapa já carrega a
+  ordem; numerar seria decorar, e a skill é explícita sobre marcadores numerados
+  que não codificam sequência real. Os índices `[1]`..`[k]` das fichas continuam
+  numerados porque ali o número *é* o identificador de citação.
+- **Tema escuro assumido, não alternado** — decidido com o usuário. "Latão sobre
+  petróleo" não tem equivalente honesto em tema claro, e um claro meia-boca é
+  exatamente o acabamento que a reconstrução buscava eliminar. O piso de
+  qualidade foi mantido (foco visível, movimento reduzido, quebra mobile) e o
+  teste que exigia `prefers-color-scheme: dark` foi trocado por um que exige a
+  declaração explícita de `color-scheme` e o fundo pintado — a decisão passou a
+  ser verificada, não apagada.
+- **Nome no cabeçalho passou a ser "Assistente de detecção"** (o nome real do
+  projeto), em vez da metáfora "Mesa de referência", que vinha do conceito
+  anterior. A skill pede nomear pelo que a pessoa reconhece.
+
+**Achado que muda a leitura do problema: o Dark Reader estava repintando a
+página.** Ao medir as cores computadas no navegador, o fundo vinha
+`rgb(24,26,27)` — cinza neutro — e não o `#0B1F28` do token. A extensão tinha
+injetado onze folhas de estilo e re-derivado a paleta inteira. Cadeia de
+evidências: o token resolvia certo, a regra estava no CSSOM, um `background`
+*inline* no botão era ignorado (só `!important` de origem "user" faz isso),
+nenhuma regra `!important` existia em folha acessível da página, um `<button>`
+recém-criado aceitava a cor, e os valores observados (`#181A1B` de fundo,
+`#E8E6E3` de texto) são a assinatura do Dark Reader.
+
+Acrescentado `<meta name="darkreader-lock">`, o mecanismo oficial da extensão
+para se abster em página que já tem tema escuro próprio. Isso devolveu o fundo
+correto, mas os controles de formulário continuaram sendo transformados — a
+extensão segue com regras por seletor de origem "user" nesta máquina.
+
+**Consequência honesta:** boa parte do que o usuário via como "amador"
+provavelmente era a extensão achatando qualquer paleta para o mesmo cinza. A
+estrutura, a tipografia e o layout foram verificados no navegador; **o
+julgamento de cor não pôde ser feito nesta máquina** enquanto o Dark Reader
+estiver ativo para `127.0.0.1`.
+
+**Pendências desta sessão:**
+- **Quebra mobile não verificada visualmente.** `resize_window` reportou sucesso
+  mas o `window.innerWidth` permaneceu em 2560; as media queries de 980px e
+  620px estão escritas e não foram confirmadas em viewport real.
+- O `ruff` continua configurado no `pyproject.toml` e ausente do `.venv`.
+
+**Estado em que a sessão foi deixada:** `pytest` verde — 186 testes, incluindo
+integração. Consulta completa exercitada na interface nova (mapa acendendo 5 de
+5.664, resposta ancorada, 5/5 citadas, fichas com procedência e lógica). Sem
+erros no console.
+
+**Correção após relato de layout quebrado (mesma data).**
+
+O usuário abriu a página e encontrou o layout desmontado. Investigação: servidor
+no ar, os três arquivos em 200, CSS com 133 chaves balanceadas e sem caractere
+inválido, e — medindo em iframes de 390, 700 e 1280 px — nenhum transbordo
+horizontal e as 117 regras carregadas nas três larguras. Ou seja, o estado em
+disco estava íntegro; a quebra foi de *entrega*, não de código.
+
+**Causa: cache incoerente entre o HTML e os estáticos.** A rota `/` tinha
+recebido `Cache-Control: no-cache` na sessão anterior, mas o mount `/static`
+não. Sem `Cache-Control`, o navegador aplica frescor heurístico próprio, então
+era possível receber o `index.html` novo — que revalidava — junto com o
+`styles.css` **antigo**, servido do cache. Markup novo com nomes de classe
+velhos é exatamente uma página sem estilo. A reconstrução da interface trocou
+todos os nomes de classe (`.desk` → `.bancada`, `.card` → `.ficha`, …), o que
+tornou essa incoerência máxima em vez de sutil.
+
+Corrigido com um middleware que carimba `no-cache` em `/static/*`. `no-cache`
+não proíbe o cache: obriga a revalidar, e o `etag` que o StaticFiles já emite
+faz a resposta ser um 304 barato. Há teste de integração exigindo que o HTML e
+os dois estáticos revalidem juntos — a assimetria é que causou o defeito, então
+é ela que o teste trava.
+
+Corrigido também, preventivamente: `min-width: 0` no `fieldset` do seletor de
+modelos. Um `fieldset` não encolhe abaixo da largura mínima do conteúdo por
+padrão e é assim que empurra a página para fora da viewport em tela estreita.
+Não estava causando transbordo nas larguras medidas, mas é armadilha conhecida
+e o custo de desarmar é uma linha.
+
+**Pendência anterior resolvida:** a quebra mobile, que ficara sem verificação
+porque `resize_window` não alterava o `innerWidth`, foi confirmada renderizando
+a página dentro de iframes de largura fixa — as media queries respondem ao
+viewport do iframe. Em 390 px o formulário empilha, o botão ocupa a largura
+inteira, as fichas de modelo quebram por provedor e nada transborda.
+
+**Nota de verificação:** dentro do iframe o Dark Reader não se aplica, então
+foi ali que as cores reais puderam ser conferidas pela primeira vez — o botão
+sai em `rgb(217,164,65)`, o latão do plano, nas três larguras.
+
+`pytest` verde: 187 testes.

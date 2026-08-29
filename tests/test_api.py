@@ -101,22 +101,26 @@ def test_no_external_dependency_beyond_google_fonts(html: str) -> None:
 
 
 def test_hidden_attribute_beats_author_display(css: str) -> None:
-    """Regressão de um defeito real desta fase.
+    """Regressão de um defeito real da Fase 7.
 
-    `.result` declara `display: grid`, que vence o `display: none` que o
+    `.resultado` declara `display: grid`, que vence o `display: none` que o
     navegador aplica via `[hidden]`. Sem a regra explícita, a página abria
-    mostrando um selo de ancoragem vazio.
+    mostrando um selo de aferição vazio.
     """
     assert re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important", css)
-    assert ".result {" in css and "display: grid" in css
+    assert ".resultado {" in css and "display: grid" in css
 
 
-def test_quality_floor_is_present(css: str) -> None:
+def test_quality_floor_is_present(css: str, html: str) -> None:
     """Piso não negociável da skill de frontend-design."""
     assert ":focus-visible" in css, "sem foco de teclado visível"
     assert "prefers-reduced-motion" in css, "movimento não condicionado"
     assert "@media (max-width: 620px)" in css, "sem quebra para mobile"
-    assert "prefers-color-scheme: dark" in css, "sem tema escuro"
+    # O tema escuro é assumido, não alternado (ver PROGRESS.md). Sem
+    # `prefers-color-scheme`, o navegador precisa ser avisado — senão pinta os
+    # controles nativos no esquema claro sobre um fundo escuro.
+    assert 'name="color-scheme" content="dark"' in html, "tema não declarado ao navegador"
+    assert "background: var(--petroleo)" in css, "o fundo precisa ser pintado explicitamente"
 
 
 def test_wide_content_scrolls_inside_its_own_box(css: str) -> None:
@@ -159,8 +163,32 @@ def test_model_options_are_visible_without_interaction(html: str, js: str) -> No
 
 def test_palette_is_named_and_sized_as_planned(css: str) -> None:
     """Trava o plano de design: 6 cores nomeadas, não uma paleta improvisada."""
-    for token in ("--papel", "--carta", "--tinta", "--grafite", "--verificado", "--ressalva"):
+    for token in ("--petroleo", "--bancada", "--fresa", "--luz", "--vapor", "--latao"):
         assert f"{token}:" in css, f"cor {token} sumiu da paleta"
+
+
+def test_type_roles_are_filled_by_distinct_families(css: str, html: str) -> None:
+    """Três papéis tipográficos, e nenhum deles a escolha reflexa.
+
+    A versão anterior usava Space Grotesk + IBM Plex, que é o par que qualquer
+    projeto pega por padrão — parte do motivo de a tela ler como template.
+    """
+    for token in ("--display:", "--corpo:", "--mono:"):
+        assert token in css, f"papel tipográfico {token} não definido"
+    for family in ("Chakra+Petch", "Archivo", "JetBrains+Mono"):
+        assert family in html, f"{family} não é carregada"
+
+
+def test_corpus_map_is_drawn_from_the_real_corpus_size(js: str, html: str) -> None:
+    """O elemento de assinatura precisa medir o acervo, não desenhar enfeite.
+
+    O mapa só significa alguma coisa se cada célula for uma regra real e se a
+    mesma regra cair sempre na mesma célula — daí o hash estável do `rule_uid`.
+    """
+    assert 'id="corpusCanvas"' in html
+    assert "health.indexed_chunks" in js, "o mapa não lê o tamanho real do acervo"
+    assert "hashUid" in js, "sem posição estável, a mesma regra pularia de célula"
+    assert "prefers-reduced-motion" in js, "a cascata não respeita movimento reduzido"
 
 
 # --------------------------------------------------------------------------
@@ -250,9 +278,26 @@ def test_ask_rejects_a_model_outside_the_catalog(client) -> None:  # type: ignor
 
 
 @pytest.mark.integration
+def test_html_and_static_revalidate_together(client) -> None:  # type: ignore[no-untyped-def]
+    """Regressão de um defeito real, relatado por quem usa.
+
+    O HTML era `no-cache` e os estáticos não. O navegador então aplicava
+    frescor heurístico só no CSS e podia servir a folha antiga junto com o
+    markup novo — nomes de classe velhos, página sem estilo. Os dois precisam
+    revalidar, senão a incoerência volta na próxima mudança de interface.
+    """
+    for path in ("/", "/static/styles.css", "/static/app.js"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert "no-cache" in response.headers.get("cache-control", ""), (
+            f"{path} pode ser servido de cache sem revalidar"
+        )
+
+
+@pytest.mark.integration
 def test_index_page_is_served(client) -> None:  # type: ignore[no-untyped-def]
     response = client.get("/")
     assert response.status_code == 200
-    assert "Mesa de refer" in response.text
+    assert "Assistente de detec" in response.text
     assert client.get("/static/styles.css").status_code == 200
     assert client.get("/static/app.js").status_code == 200

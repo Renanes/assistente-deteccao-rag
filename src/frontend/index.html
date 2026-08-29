@@ -3,134 +3,168 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mesa de referência — assistente de detecção</title>
+<meta name="color-scheme" content="dark">
+<!-- A página já é escura por decisão de design, com paleta própria. Sem este
+     aviso, o Dark Reader re-deriva tudo para o cinza neutro dele e achata a
+     paleta inteira — foi o que aconteceu na primeira verificação desta tela.
+     `darkreader-lock` é o mecanismo oficial da extensão para se abster. -->
+<meta name="darkreader-lock">
+<title>Assistente de detecção — regras públicas com fonte conferida</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
 
-<header class="desk-head">
-  <div class="desk-head__inner">
-    <div class="desk-head__mark">
-      <span class="mark__glyph" aria-hidden="true">§</span>
+<header class="topo">
+  <div class="topo__interno">
+    <div class="marca">
+      <span class="marca__glifo" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.6">
+          <rect x="3.5" y="3.5" width="25" height="25" rx="1.5" opacity=".45"/>
+          <path d="M3.5 20.5h7l3.5-9 4 15 3.5-6h6.5"/>
+        </svg>
+      </span>
       <div>
-        <h1>Mesa de referência</h1>
-        <p class="desk-head__sub">Regras públicas de detecção — SigmaHQ, Splunk ESCU, YARA-L</p>
+        <h1 class="marca__nome">Assistente de detecção</h1>
+        <p class="marca__linha">Regras públicas — SigmaHQ, Splunk ESCU, YARA-L</p>
       </div>
     </div>
-    <dl class="desk-head__stats" id="deskStats">
-      <div><dt>acervo</dt><dd id="statChunks">—</dd></div>
-      <div><dt>embedding</dt><dd id="statEmbedding">—</dd></div>
-      <div><dt>geração</dt><dd id="statLlm">—</dd></div>
+
+    <dl class="medidores">
+      <div class="medidor">
+        <dt>acervo</dt>
+        <dd id="statChunks">—</dd>
+      </div>
+      <div class="medidor">
+        <dt>embedding</dt>
+        <dd id="statEmbedding">—</dd>
+      </div>
+      <div class="medidor">
+        <dt>geração</dt>
+        <dd id="statLlm">—</dd>
+      </div>
     </dl>
   </div>
 </header>
 
-<main class="desk">
+<main class="bancada">
 
-  <form class="ask" id="askForm">
-    <label class="ask__label" for="question">O que você precisa detectar?</label>
-    <div class="ask__row">
-      <input
-        id="question"
-        name="question"
-        type="text"
-        class="ask__input"
-        autocomplete="off"
-        maxlength="1000"
-        placeholder="ex.: tem regra pra T1055 no Windows?"
-        required>
-      <button type="submit" class="ask__submit" id="askSubmit">Consultar</button>
-    </div>
-
-    <fieldset class="picker">
-      <legend class="picker__legend">
-        Modelo que redige a resposta
-        <span class="picker__hint">preço por 1M de tokens de saída</span>
-      </legend>
-      <div class="picker__groups" id="modelOptions">
-        <p class="picker__loading">carregando o catálogo…</p>
+  <section class="consulta">
+    <form id="askForm">
+      <label class="consulta__rotulo" for="question">O que você precisa detectar?</label>
+      <div class="consulta__linha">
+        <input
+          id="question"
+          name="question"
+          type="text"
+          class="consulta__campo"
+          autocomplete="off"
+          maxlength="1000"
+          placeholder="tem regra pra T1055 no Windows?"
+          required>
+        <button type="submit" class="consulta__acao" id="askSubmit">Consultar</button>
       </div>
-      <p class="picker__note" id="modelNote">
-        O acervo, a busca e a conferência de citação não mudam com a escolha —
-        só quem escreve a resposta.
-      </p>
-    </fieldset>
 
-    <p class="ask__hint">
-      A resposta cita apenas regras deste acervo. Cada citação é conferida contra
-      as regras recuperadas antes de aparecer aqui.
+      <ul class="atalhos" id="examples">
+        <li><button type="button" data-q="tem regra pra T1055 no Windows?">T1055 no Windows</button></li>
+        <li><button type="button" data-q="como detectar dump de memória do LSASS?">dump do LSASS</button></li>
+        <li><button type="button" data-q="login suspeito de múltiplos países ao mesmo tempo">login de vários países</button></li>
+        <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
+      </ul>
+
+      <fieldset class="modelos">
+        <legend class="modelos__titulo">
+          Modelo que redige a resposta
+          <span class="modelos__unidade">US$ por 1M de tokens de saída</span>
+        </legend>
+        <div class="modelos__grupos" id="modelOptions">
+          <p class="modelos__espera">carregando o catálogo…</p>
+        </div>
+        <p class="modelos__nota" id="modelNote">
+          O acervo, a busca e a conferência de citação não mudam com a escolha.
+          Só muda quem escreve a resposta.
+        </p>
+      </fieldset>
+    </form>
+  </section>
+
+  <!-- Elemento de assinatura: o mapa do acervo.
+       Cada célula é uma regra indexada. A consulta acende as que responderam,
+       o que torna visível a única coisa que o produto realmente faz: estreitar
+       5.664 regras até as poucas que sustentam a resposta. -->
+  <section class="acervo" aria-labelledby="acervoTitulo">
+    <h2 class="acervo__titulo" id="acervoTitulo">Mapa do acervo</h2>
+    <canvas class="acervo__mapa" id="corpusCanvas" role="img"
+            aria-label="Mapa do acervo de regras indexadas"></canvas>
+    <p class="acervo__legenda" id="corpusLegend">
+      Uma célula por regra indexada. A consulta acende as que responderem.
     </p>
-    <ul class="ask__examples" id="examples">
-      <li><button type="button" data-q="tem regra pra T1055 no Windows?">T1055 no Windows</button></li>
-      <li><button type="button" data-q="como detectar dump de memória do LSASS?">dump do LSASS</button></li>
-      <li><button type="button" data-q="login suspeito de múltiplos países ao mesmo tempo">login de vários países</button></li>
-      <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
-    </ul>
-  </form>
+  </section>
 
-  <section class="state" id="stateIdle">
-    <p class="state__lead">Pergunte em linguagem natural. A resposta vem com a regra exata usada como fonte.</p>
-    <ol class="state__how">
-      <li><span>1</span> A pergunta vira vetor e, se citar uma técnica ATT&amp;CK, também um filtro rígido.</li>
-      <li><span>2</span> O acervo devolve as regras mais próximas, com posição e similaridade.</li>
-      <li><span>3</span> O modelo responde só com o que foi recuperado — e as citações são conferidas em código.</li>
+  <section class="estado" id="stateIdle">
+    <p class="estado__chamada">
+      Pergunte em linguagem natural. A resposta cita a regra exata que a
+      sustenta — e a citação é conferida em código antes de chegar aqui.
+    </p>
+    <ol class="percurso">
+      <li><span class="percurso__passo">pergunta</span> vira vetor e, se citar uma técnica ATT&amp;CK, também um filtro rígido.</li>
+      <li><span class="percurso__passo">acervo</span> devolve as regras mais próximas, com posição e similaridade.</li>
+      <li><span class="percurso__passo">resposta</span> sai só do que foi recuperado, com as citações conferidas.</li>
     </ol>
   </section>
 
-  <section class="state state--busy" id="stateBusy" hidden aria-live="polite">
+  <section class="estado estado--ocupado" id="stateBusy" hidden aria-live="polite">
+    <span class="pulso" aria-hidden="true"></span>
     <p>Consultando o acervo…</p>
   </section>
 
-  <section class="state state--error" id="stateError" hidden role="alert">
-    <h2 id="errorTitle">Não deu para consultar</h2>
+  <section class="estado estado--erro" id="stateError" hidden role="alert">
+    <h2 id="errorTitle">A consulta não completou</h2>
     <p id="errorDetail"></p>
   </section>
 
-  <section class="result" id="result" hidden>
+  <section class="resultado" id="result" hidden>
 
-    <div class="answer">
-      <div class="answer__head">
-        <!-- Elemento de assinatura: o selo de ancoragem. Reporta o resultado da
-             verificação de citação feita em código, não uma promessa do prompt. -->
-        <div class="seal" id="seal">
-          <span class="seal__ring" aria-hidden="true"></span>
-          <div class="seal__text">
+    <article class="resposta">
+      <div class="resposta__topo">
+        <div class="afericao" id="seal">
+          <span class="afericao__marca" aria-hidden="true"></span>
+          <div class="afericao__texto">
             <strong id="sealTitle">—</strong>
             <span id="sealDetail"></span>
           </div>
         </div>
-        <p class="answer__meta" id="answerMeta"></p>
+        <p class="resposta__meta" id="answerMeta"></p>
       </div>
 
-      <div class="notice notice--warn" id="noticeRelaxed" hidden>
+      <div class="aviso" id="noticeRelaxed" hidden>
         <strong>Não há regra para o termo pedido.</strong>
         <span id="noticeRelaxedDetail"></span>
       </div>
-      <div class="notice notice--warn" id="noticeInvalid" hidden>
+      <div class="aviso" id="noticeInvalid" hidden>
         <strong>Citação inexistente na resposta.</strong>
         <span id="noticeInvalidDetail"></span>
       </div>
 
-      <article class="prose" id="answerBody"></article>
-    </div>
+      <div class="prosa" id="answerBody"></div>
+    </article>
 
-    <aside class="evidence">
-      <h2 class="evidence__title">
+    <aside class="evidencia">
+      <h2 class="evidencia__titulo">
         Regras recuperadas
-        <span class="evidence__count" id="evidenceCount"></span>
+        <span class="evidencia__conta" id="evidenceCount"></span>
       </h2>
-      <ol class="cards" id="cards"></ol>
+      <ol class="fichas" id="cards"></ol>
     </aside>
 
   </section>
 </main>
 
-<footer class="desk-foot">
+<footer class="rodape">
   <p>
-    Demonstração de RAG sobre regras de detecção públicas.
+    Demonstração de RAG sobre regras públicas de detecção.
     Recall@5 de 97% em 30 perguntas de resposta conhecida — método e números em
     <code>eval/results.md</code>.
   </p>
