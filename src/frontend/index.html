@@ -46,6 +46,37 @@
         <dd id="statLlm">—</dd>
       </div>
     </dl>
+
+    <!-- Configuração de chaves. Fica no cabeçalho por falta de barra lateral —
+         o layout é de coluna única — e porque é onde já vivem os medidores que
+         dizem qual provedor está em uso. -->
+    <details class="config" id="configPanel">
+      <summary class="config__abrir">
+        <span aria-hidden="true">⚙</span>
+        <span>Configuração</span>
+        <span class="config__selo" id="configBadge"></span>
+      </summary>
+
+      <div class="config__corpo">
+        <p class="config__nota">
+          A chave fica <strong>só neste navegador</strong> e acompanha cada
+          pergunta que você faz. Não é enviada para o <code>.env</code>, não é
+          gravada no servidor e nenhum endpoint a devolve. Quem abrir esta
+          página noutro navegador usa a chave dele.
+        </p>
+
+        <div class="config__avisos" id="configWarning" hidden></div>
+
+        <ul class="chaves" id="keyList"></ul>
+
+        <p class="config__rodape">
+          Guardada no <code>localStorage</code>: some se você limpar os dados do
+          site, e fica legível para qualquer script que rode nesta página. Para
+          uso permanente numa máquina sua, o <code>.env</code> continua sendo o
+          lugar certo.
+        </p>
+      </div>
+    </details>
   </div>
 </header>
 

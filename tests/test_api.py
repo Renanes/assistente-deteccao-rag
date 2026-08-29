@@ -12,6 +12,7 @@ em silêncio, no navegador de quem for avaliar o projeto.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -232,6 +233,68 @@ def test_catalog_does_not_hardcode_technique_ids(js: str, html: str) -> None:
     assert not hardcoded, f"app.js tem ID ATT&CK hardcoded: {hardcoded}"
 
 
+def test_settings_response_has_no_field_that_could_carry_a_key(js: str) -> None:
+    """O contrato de `/api/settings` não pode ter onde caber uma chave.
+
+    A tentação seria devolver os últimos caracteres "para conferir", e isso
+    viraria vazamento parcial de credencial numa aplicação sem autenticação.
+    O teste trava o formato: só booleano, nome de provedor e nome de cabeçalho.
+    """
+    from src.api.schemas import ProviderStatusOut, SettingsResponse
+
+    assert set(ProviderStatusOut.model_fields) == {
+        "provider",
+        "configured_in_env",
+        "roles",
+        "header",
+    }
+    assert ProviderStatusOut.model_fields["configured_in_env"].annotation is bool
+    proibidos = {"key", "api_key", "secret", "token", "value", "masked", "suffix"}
+    assert not proibidos & set(SettingsResponse.model_fields)
+    # E a interface não pode ler um campo desses nem que ele aparecesse.
+    for nome in proibidos:
+        assert f"data.{nome}" not in js
+
+
+def test_the_key_never_leaves_the_browser_except_as_a_request_header(js: str) -> None:
+    """A chave vai por cabeçalho em `/api/ask` e em lugar nenhum mais.
+
+    Se aparecer um POST mandando a chave para o servidor guardar, o modelo de
+    segurança escolhido foi desfeito — e o sintoma seria zero: continuaria
+    funcionando, só que com o segredo em disco.
+    """
+    assert "cabecalhosDeChave()" in js
+    assert "localStorage" in js and "KEY_PREFIX" in js
+    # Nenhum corpo de requisição pode carregar a chave.
+    assert "body: JSON.stringify" in js
+    for suspeito in ("api_key:", "apiKey:", "key: chave", "chave: valor"):
+        assert suspeito not in js, f"a chave parece ir num corpo de requisição: {suspeito}"
+
+
+def test_the_key_field_is_masked_and_cleared_after_saving(html: str, js: str) -> None:
+    """Piso de higiene do campo de senha."""
+    assert 'type="password"' in js, "o campo da chave precisa ser mascarado"
+    assert 'autocomplete="off"' in js
+    # O valor sai do DOM assim que é guardado.
+    assert "campo.value = \"\"" in js
+
+
+def test_header_names_come_from_the_server_not_from_the_script(js: str) -> None:
+    """Duas listas de cabeçalho divergiriam, e o sintoma seria mudo.
+
+    A chave viajaria num cabeçalho que o backend ignora: "não funciona", sem
+    erro nenhum. O JS lê `status.header` do `/api/settings`.
+    """
+    assert "status.header" in js
+    for header in ("x-api-key-anthropic", "x-api-key-openai", "x-api-key-voyage"):
+        assert header not in js, f"nome de cabeçalho hardcoded no app.js: {header}"
+
+
+def test_settings_panel_ids_exist(html: str) -> None:
+    for element_id in ("configPanel", "keyList", "configWarning", "configBadge"):
+        assert f'id="{element_id}"' in html
+
+
 # --------------------------------------------------------------------------
 # Integração: exige banco indexado e chaves reais
 # --------------------------------------------------------------------------
@@ -381,6 +444,45 @@ def test_ask_with_the_untagged_facet_returns_only_untagged_rules(client) -> None
         assert rule["mitre_techniques"] == [], (
             f"{rule['rule_uid']} tem técnica e não devia estar aqui"
         )
+
+
+@pytest.mark.integration
+def test_settings_endpoint_reports_state_without_any_key(client) -> None:  # type: ignore[no-untyped-def]
+    """A resposta real, conferida contra as chaves reais do ambiente."""
+    from src.providers import get_settings
+
+    body = client.get("/api/settings").json()
+    assert body["providers"], "nenhum provedor reportado"
+
+    # Nenhum valor de chave pode aparecer em lugar nenhum da resposta.
+    settings = get_settings()
+    serializado = json.dumps(body)
+    for chave in (
+        settings.anthropic_api_key,
+        settings.openai_api_key,
+        settings.voyage_api_key,
+    ):
+        if chave:
+            assert chave not in serializado
+            assert chave[-6:] not in serializado, "sufixo da chave vazou"
+
+    for provider in body["providers"]:
+        assert isinstance(provider["configured_in_env"], bool)
+        assert provider["roles"]
+
+
+@pytest.mark.integration
+def test_ask_rejects_a_malformed_visitor_key(client) -> None:  # type: ignore[no-untyped-def]
+    """Chave com quebra de linha no meio é 400 com mensagem, não 500."""
+    response = client.post(
+        "/api/ask",
+        json={"question": "teste", "top_k": 1},
+        headers={"x-api-key-openai": "sk-proj-quebrada\naqui-no-meio-do-valor"},
+    )
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "openai" in detail.lower()
+    assert "sk-proj-quebrada" not in detail, "a chave recusada voltou na resposta"
 
 
 @pytest.mark.integration

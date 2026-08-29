@@ -354,6 +354,53 @@
   interseção — que seria sempre vazia, já que nenhuma regra pode declarar
   `T1055` e não declarar nada ao mesmo tempo.
 
+- **A chave de API de quem usa nunca toca o disco do servidor** — o pedido era
+  um painel para quem clona o repositório trazer as próprias chaves. Três
+  modelos foram postos lado a lado e o escolhido foi o de **chave só no
+  navegador**: ela vive no `localStorage` do visitante, viaja num cabeçalho por
+  requisição, é usada e descartada. Não vai para o `.env`, não fica em memória
+  entre requisições, e nenhum endpoint a devolve.
+  A alternativa recusada era gravar no `.env` pela interface. O motivo da recusa
+  é que esta aplicação **não tem autenticação** (o `CLAUDE.md`, seção 2, põe auth
+  e multi-tenant fora do escopo v1): um endpoint que grave segredo em disco sem
+  auth deixa qualquer um que alcance a porta trocar a chave do operador e gastar
+  o dinheiro dele. Com a chave no navegador, hospedar a demo publicamente
+  continua seguro — cada visitante traz e paga a própria.
+- **Provedor construído com chave de visitante nunca entra em cache** — é a
+  regra que o desenho inteiro depende. `Runtime.llm_by_model` existe para
+  reaproveitar conexão HTTP entre requisições, e guardar ali um cliente com a
+  credencial de um visitante a entregaria ao próximo. `apply_keys` devolve
+  **cópia** de `Settings` pelo mesmo motivo: mutar o objeto compartilhado faria
+  a chave de um valer para os outros. Os dois casos são falha silenciosa — não
+  quebram nada visível — então são teste, não convenção.
+- **`/api/settings` responde com booleano, nunca com valor** — é o endpoint por
+  onde uma credencial mais facilmente vazaria. A tentação seria devolver os
+  últimos caracteres "para conferir", e isso é vazamento parcial numa aplicação
+  sem auth. Há teste travando o formato do contrato e proibindo campos com nome
+  de segredo. As mensagens de erro passam por `redact` antes de virar resposta
+  HTTP: erro de SDK viaja para o cliente e é barato demais garantir que uma
+  chave não vá junto.
+- **REVISÃO da decisão de arranque da Fase 7.** A original — "provedores
+  resolvidos no arranque; se a chave falta, a aplicação falha ao subir" —
+  continua registrada acima e estava certa no contexto dela: chave faltando era
+  configuração quebrada, e falhar cedo mostrava a causa. Com as chaves podendo
+  vir de quem usa, **subir sem chave nenhuma virou um estado inicial legítimo**:
+  é exatamente a situação de quem acabou de clonar o repositório, e derrubar a
+  aplicação nele tornaria o painel inalcançável. O arranque passou a distinguir
+  "falta um segredo que alguém vai trazer" (tolerado, vira estado reportado em
+  `/api/health` e `/api/settings`) de "esta configuração não existe" —
+  `EMBEDDING_PROVIDER` com nome desconhecido, modelo de embedding sem dimensão
+  registrada —, que **continua** derrubando o arranque.
+- **A faceta de chave cobre embedding e geração, não só geração** — pedir só a
+  chave "da IA generativa" entregaria um app quebrado. O pipeline embedda a
+  pergunta **antes** de gerar, e quem traz só chave Anthropic não consegue nem
+  consultar, porque a Anthropic não tem API de embeddings (decisão da Fase 3).
+  A interface declara o papel de cada provedor (`PROVIDER_ROLES`) e avisa
+  separadamente qual das duas pontas está descoberta. Avisa também quando o
+  provedor de embedding escolhido não bate com o modelo que indexou o corpus —
+  esse é o pior modo de falha do "traga sua chave", porque não dá erro: vetores
+  de modelos diferentes não são comparáveis e a busca só devolve regra errada.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -432,6 +479,19 @@
   a próxima pergunta; não há como navegar as 143 regras de `T1003.001` sem
   perguntar algo. Um endpoint de listagem paginada resolveria, mas é
   funcionalidade nova e não estava no pedido.
+
+- **A chave no `localStorage` é legível por qualquer script desta página.** É o
+  limite conhecido do modelo escolhido, dito por extenso na própria interface.
+  A página não carrega script de terceiros e escapa o texto do LLM antes de
+  renderizar, então não há vetor conhecido hoje — mas quem for além desta demo
+  deveria olhar para fluxo com backend guardando token de sessão, não a chave.
+- **Não há limite de uso por visitante.** Com a chave vindo de quem usa isso não
+  gasta o dinheiro do operador, mas uma instância pública ainda serve de proxy
+  aberto para a API do provedor de quem colar a chave ali. Nada a fazer enquanto
+  a demo for local; vale registrar antes de qualquer hospedagem.
+- **O `.env` continua sem caminho de escrita pela interface**, por decisão. Quem
+  quiser fixar a chave numa máquina própria edita o arquivo e reinicia — e é o
+  que a interface recomenda para uso permanente.
 
 ## Próximos passos
 
@@ -1155,3 +1215,59 @@ sucesso sem alterar o `innerWidth`).
 usuário na porta 8000 preservado, alterações **não commitadas** — o diff da
 sessão anterior (reconstrução da interface) também segue sem commit no mesmo
 working tree.
+
+### 2026-08-29 — Sessão 12 (Claude Code)
+
+**Painel de configuração de chaves, para quem clona o repositório trazer as
+próprias.** O pedido mencionava "barra lateral"; não existe uma — o layout é de
+coluna única — então o painel ficou no cabeçalho, ao lado dos medidores que já
+dizem qual provedor está em uso.
+
+**A pergunta que precisou ser feita antes de codar:** onde a chave vive. Três
+modelos foram postos lado a lado com o custo de cada um, e a escolha foi a de
+chave só no navegador. O raciocínio está em Decisões; o resumo é que sem
+autenticação — fora do escopo v1 pelo `CLAUDE.md` — um endpoint que grave
+segredo em disco é um jeito de estranho trocar a chave do operador.
+
+**Duas coisas que o pedido não previa e que teriam entregue um app quebrado:**
+
+1. **Não é uma chave, são duas pontas.** A pergunta vira vetor antes de virar
+   resposta. Quem trouxesse só a chave "da IA generativa" (Anthropic) não
+   conseguiria nem consultar. A interface declara o papel de cada provedor e
+   avisa qual das pontas está descoberta — verificado no navegador: colando só
+   a chave Anthropic, 3 dos 7 modelos destravam e o aviso de embedding
+   permanece, que é o comportamento correto.
+2. **A aplicação não subia sem chave** — exatamente o estado de quem acabou de
+   clonar, e isso deixaria o painel inalcançável. O arranque passou a separar
+   "falta um segredo" de "configuração inválida" (ver a REVISÃO em Decisões).
+   Verificado: com as três chaves em branco a aplicação sobe, `/api/health`
+   reporta `aguardando chave de embedding` e `/api/ask` devolve 400 com a
+   instrução, em vez de 500.
+
+**O que foi entregue:**
+- `src/api/credentials.py` — cabeçalhos por provedor, validação que nunca ecoa
+  o valor recebido, `apply_keys` por cópia e `redact` para as mensagens de erro.
+- `GET /api/settings` — diagnóstico com booleanos, mais o modelo com que o
+  corpus foi realmente indexado.
+- `/api/ask` resolve provedores por requisição quando há chave de visitante, e
+  **sem cache** nesse caminho.
+- Painel no cabeçalho: campo mascarado, salvar/trocar/remover, avisos por ponta
+  descoberta, e o seletor de modelos recalculando disponibilidade ao vivo.
+- `tests/test_credentials.py` (31 testes) mais 7 em `test_api.py`.
+  **251 no total, todos verdes**, 22 de integração.
+
+**Um teste que corrigiu meu modelo mental, não o código:** eu havia escrito que
+qualquer caractere de controle na chave deveria ser recusado, e o teste falhou
+para `\n` no fim. O código estava certo: `strip()` apara quebra de linha de
+copiar-e-colar, que é o caso comum e benigno; o que precisa ser recusado é
+controle no **meio** do valor, que é corrupção. Os testes foram reescritos para
+distinguir os dois, com o caso do meio coberto explicitamente.
+
+**Verificado no navegador** com chave falsa: salvar guarda no `localStorage`,
+limpa o campo, troca o rótulo para "neste navegador" e passa a emitir o
+cabeçalho; remover desfaz as quatro coisas. Nenhuma chave real foi digitada, e
+a chave falsa foi apagada do navegador ao fim.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (251 testes, 22 de integração), servidor
+reiniciado na porta 8000 com o código novo, `SKILL.md` segue fora do
+versionamento por ser conteúdo de terceiros.

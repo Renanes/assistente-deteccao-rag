@@ -113,6 +113,38 @@ class ModelsResponse(BaseModel):
     default_model: str
 
 
+class ProviderStatusOut(BaseModel):
+    """O estado da chave de um provedor — nunca o valor dela.
+
+    `configured_in_env` é booleano de propósito. A tentação seria devolver os
+    últimos caracteres da chave "para conferir", e isso transformaria este
+    endpoint num vazamento parcial de credencial numa aplicação sem
+    autenticação. Quem quiser conferir troca a chave.
+    """
+
+    provider: str
+    configured_in_env: bool = Field(description="Se o `.env` do servidor tem chave para ele.")
+    roles: list[str] = Field(description="O que essa chave habilita: embedding, geração ou ambos.")
+    header: str = Field(description="Cabeçalho em que a chave de quem usa deve viajar.")
+
+
+class SettingsResponse(BaseModel):
+    """Diagnóstico de configuração, para a interface dizer o que falta."""
+
+    providers: list[ProviderStatusOut] = Field(default_factory=list)
+
+    embedding_provider: str
+    embedding_model: str
+    #: Com que modelo o corpus foi **realmente** indexado. É o dado que evita o
+    #: modo de falha mais confuso do "traga sua chave": vetores de modelos
+    #: diferentes não são comparáveis, então uma chave que cubra outro modelo
+    #: devolve vizinhos errados em vez de erro.
+    corpus_embedding_model: str = ""
+
+    embedding_ready: bool = Field(description="Há chave de embedding no `.env`.")
+    llm_ready: bool = Field(description="Há chave de geração no `.env`.")
+
+
 class TechniqueOut(BaseModel):
     """Uma técnica do acervo, como o catálogo a exibe."""
 

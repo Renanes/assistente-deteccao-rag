@@ -165,6 +165,155 @@ button { font: inherit; color: inherit; cursor: pointer; }
   color: var(--luz);
 }
 
+/* ------------------------------------------------------------ configuração
+
+   Painel de chaves. Some do fluxo quando esta tudo configurado e se abre
+   sozinho quando falta algo — quem acabou de clonar o repositorio precisa ver
+   o que fazer, nao descobrir na primeira pergunta que falhou. */
+
+.config {
+  flex-basis: 100%;
+  border-top: var(--sulco);
+  margin-top: calc(var(--passo) * 2);
+}
+
+.config__abrir {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 2.5) 0 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--vapor);
+  list-style: none;
+}
+
+.config__abrir::-webkit-details-marker { display: none; }
+.config__abrir:hover { color: var(--luz); }
+
+.config__selo {
+  padding: 0 calc(var(--passo) * 1.5);
+  border-radius: 2px;
+  font-size: 10px;
+}
+
+.config__selo--alerta {
+  background: var(--ressalva-fraco);
+  color: var(--ressalva);
+}
+
+.config__corpo {
+  padding: calc(var(--passo) * 3) 0 calc(var(--passo) * 2);
+  max-width: 760px;
+}
+
+.config__nota,
+.config__rodape {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--vapor);
+}
+
+.config__nota strong { color: var(--luz); }
+.config__rodape { margin-top: calc(var(--passo) * 3); font-size: 11.5px; color: #5d7f8c; }
+
+.config__avisos {
+  margin: calc(var(--passo) * 3) 0 0;
+  padding: calc(var(--passo) * 3);
+  border-left: 2px solid var(--ressalva);
+  background: var(--ressalva-fraco);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--luz);
+}
+
+.config__avisos p + p { margin-top: calc(var(--passo) * 2); }
+
+.chaves {
+  margin: calc(var(--passo) * 3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chave {
+  padding: calc(var(--passo) * 3) 0;
+  border-bottom: var(--sulco);
+}
+
+.chave__cabeca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+}
+
+.chave__nome {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--luz);
+}
+
+.chave__papeis {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #5d7f8c;
+}
+
+.chave__origem {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--vapor);
+}
+
+.chave__origem--local { color: var(--afere); }
+.chave__origem--falta { color: var(--ressalva); }
+
+.chave__acao {
+  display: flex;
+  gap: calc(var(--passo) * 2);
+  margin-top: calc(var(--passo) * 2);
+}
+
+.chave__campo {
+  flex: 1;
+  min-width: 0;
+  padding: calc(var(--passo) * 2) calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+  color: var(--luz);
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.chave__campo::placeholder { color: #5d7f8c; }
+.chave__campo:hover { border-color: #2a5a6d; }
+
+.chave__salvar,
+.chave__remover {
+  flex: none;
+  padding: 0 calc(var(--passo) * 3);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--vapor);
+}
+
+.chave__salvar:hover { border-color: var(--latao); color: var(--latao); }
+.chave__remover:hover:not(:disabled) { border-color: var(--ressalva); color: var(--ressalva); }
+.chave__remover:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.chave__erro {
+  margin-top: calc(var(--passo) * 2);
+  font-size: 12px;
+  color: var(--ressalva);
+}
+
 /* ---------------------------------------------------------------- bancada */
 
 .bancada {

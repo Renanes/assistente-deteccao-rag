@@ -310,9 +310,10 @@ function describeModel(id) {
   const card = catalog.find((item) => item.id === id);
   if (!card) return;
 
-  modelNote.textContent = card.available
+  modelNote.textContent = modeloUsavel(card)
     ? `${card.note} US$ ${card.price_in.toFixed(2)} entrada · US$ ${card.price_out.toFixed(2)} saída por 1M.`
-    : `Indisponível: falta a chave de API do provedor ${card.provider} no .env.`;
+    : `Indisponível: falta a chave de ${card.provider}. Informe em Configuração, ` +
+      "ou preencha no .env do servidor.";
 
   generationStatOwned = true;
   el("statLlm").textContent = `${card.provider}/${card.id}`;
@@ -324,6 +325,27 @@ function selectModel(id) {
   describeModel(id);
   for (const chip of modelOptions.querySelectorAll(".ficha-modelo")) {
     chip.classList.toggle("is-on", chip.dataset.model === id);
+  }
+}
+
+/* Um modelo é usável se há chave para o provedor dele — do `.env` do servidor
+   ou trazida por quem usa. `card.available` sozinho só conhece o `.env`, então
+   sem isto uma chave colada na Configuração não destravaria o modelo. */
+function modeloUsavel(card) {
+  return card.available || Boolean(lerChave(card.provider));
+}
+
+function renderModelAvailability() {
+  for (const chip of modelOptions.querySelectorAll(".ficha-modelo")) {
+    const card = catalog.find((item) => item.id === chip.dataset.model);
+    if (!card) continue;
+
+    const usavel = modeloUsavel(card);
+    chip.classList.toggle("ficha-modelo--off", !usavel);
+    chip.querySelector("input").disabled = !usavel;
+
+    const preco = chip.querySelector(".ficha-modelo__preco");
+    preco.textContent = usavel ? preco.dataset.price : "sem chave";
   }
 }
 
@@ -344,22 +366,21 @@ function buildModelPicker(data) {
     // Rádio real dentro de um fieldset: navegação por setas, papel de grupo e
     // foco de teclado vêm do navegador, sem reimplementar nada disso à mão.
     const chip = document.createElement("label");
-    chip.className = "ficha-modelo" + (card.available ? "" : " ficha-modelo--off");
+    chip.className = "ficha-modelo";
     chip.dataset.model = card.id;
+    chip.dataset.provider = card.provider;
     chip.innerHTML = `
-      <input type="radio" name="modelo" value="${escapeHtml(card.id)}"${
-        card.available ? "" : " disabled"
-      }>
+      <input type="radio" name="modelo" value="${escapeHtml(card.id)}">
       <span class="ficha-modelo__nome">${escapeHtml(card.label)}</span>
-      <span class="ficha-modelo__preco">${
-        card.available ? card.price_out.toFixed(2) : "sem chave"
-      }</span>
+      <span class="ficha-modelo__preco" data-price="${card.price_out.toFixed(2)}"></span>
     `;
     groups.get(card.provider).appendChild(chip);
   }
 
+  renderModelAvailability();
+
   const stored = readStored();
-  const usable = catalog.filter((card) => card.available).map((card) => card.id);
+  const usable = catalog.filter((card) => modeloUsavel(card)).map((card) => card.id);
   const chosen =
     (stored && usable.includes(stored) && stored) ||
     (usable.includes(data.default_model) && data.default_model) ||
@@ -379,6 +400,199 @@ function buildModelPicker(data) {
 modelOptions.addEventListener("change", (event) => {
   const radio = event.target.closest("input[name='modelo']");
   if (radio) selectModel(radio.value);
+});
+
+/* ----------------------------------------------------- chaves de API
+
+   A chave vive só aqui, no navegador de quem usa, e viaja num cabeçalho por
+   requisição. Nunca vai para o `.env`, nunca é gravada no servidor e nenhum
+   endpoint a devolve — `/api/settings` responde com booleanos, não com valores.
+
+   O motivo é que a aplicação não tem autenticação (fora do escopo da v1 pelo
+   `CLAUDE.md`). Um endpoint que gravasse a chave no servidor deixaria qualquer
+   um que alcance a porta trocar a chave do operador e gastar o dinheiro dele.
+   Assim, hospedar a demo publicamente continua seguro: cada visitante traz e
+   paga a própria chave.
+
+   O que isto NÃO resolve, e a interface diz por extenso: `localStorage` é
+   legível por qualquer script desta página. É conveniência de demonstração,
+   não cofre. */
+
+const KEY_PREFIX = "mesa.chave.";
+const configPanel = el("configPanel");
+const configBadge = el("configBadge");
+const configWarning = el("configWarning");
+const keyList = el("keyList");
+
+let providerStatus = [];
+let corpusEmbeddingModel = "";
+
+function lerChave(provider) {
+  try {
+    return localStorage.getItem(KEY_PREFIX + provider) || "";
+  } catch {
+    return "";
+  }
+}
+
+function gravarChave(provider, valor) {
+  try {
+    if (valor) localStorage.setItem(KEY_PREFIX + provider, valor);
+    else localStorage.removeItem(KEY_PREFIX + provider);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/* Os cabeçalhos que acompanham cada pergunta. O nome de cada um vem do
+   servidor (`/api/settings`), e não escrito aqui: duas listas divergiriam na
+   primeira mudança, e o sintoma seria a chave viajar num cabeçalho que o
+   backend ignora — ou seja, "minha chave não funciona" sem nenhum erro. */
+function cabecalhosDeChave() {
+  const headers = {};
+  for (const status of providerStatus) {
+    const chave = lerChave(status.provider);
+    if (chave) headers[status.header] = chave;
+  }
+  return headers;
+}
+
+function temChaveUtil(provider) {
+  const status = providerStatus.find((item) => item.provider === provider);
+  return Boolean(lerChave(provider)) || Boolean(status && status.configured_in_env);
+}
+
+/* Um provedor cobre a etapa de embedding? É a checagem que evita o modo de
+   falha mais confuso: a pergunta vira vetor ANTES de virar resposta, então
+   quem trouxe só chave da Anthropic não consegue nem consultar. */
+function embeddingCoberto() {
+  return providerStatus.some(
+    (status) => status.roles.includes("embedding") && temChaveUtil(status.provider)
+  );
+}
+
+function geracaoCoberta() {
+  return providerStatus.some(
+    (status) => status.roles.includes("geração") && temChaveUtil(status.provider)
+  );
+}
+
+function renderAvisosDeChave() {
+  const faltas = [];
+  if (!embeddingCoberto()) {
+    faltas.push(
+      "<strong>Falta chave de embedding.</strong> A pergunta precisa virar vetor " +
+        "antes de virar resposta, então sem ela nenhuma consulta roda — nem com " +
+        "chave de geração configurada. Serve OpenAI ou Voyage."
+    );
+  }
+  if (!geracaoCoberta()) {
+    faltas.push(
+      "<strong>Falta chave de geração.</strong> A busca funciona, mas não há " +
+        "quem redija a resposta. Serve Anthropic ou OpenAI."
+    );
+  }
+  // O acervo foi indexado com um modelo específico, e vetores de modelos
+  // diferentes não são comparáveis: o sintoma seria resultado ruim, não erro.
+  if (corpusEmbeddingModel && embeddingCoberto()) {
+    const status = providerStatus.find(
+      (item) => item.roles.includes("embedding") && temChaveUtil(item.provider)
+    );
+    if (status && status.provider === "voyage" && corpusEmbeddingModel.startsWith("text-embedding")) {
+      faltas.push(
+        `<strong>Modelo de embedding incompatível com o acervo.</strong> O corpus ` +
+          `foi indexado com <code>${escapeHtml(corpusEmbeddingModel)}</code>. Usar a ` +
+          "Voyage exige reindexar (<code>python -m src.embeddings.run --reset</code>), " +
+          "senão a busca compara vetores de modelos diferentes e devolve regra errada."
+      );
+    }
+  }
+
+  configWarning.hidden = faltas.length === 0;
+  configWarning.innerHTML = faltas.map((texto) => `<p>${texto}</p>`).join("");
+
+  const pendentes = (!embeddingCoberto() ? 1 : 0) + (!geracaoCoberta() ? 1 : 0);
+  configBadge.textContent = pendentes ? `${pendentes} pendente${pendentes > 1 ? "s" : ""}` : "";
+  configBadge.classList.toggle("config__selo--alerta", pendentes > 0);
+}
+
+function renderChaves() {
+  keyList.innerHTML = "";
+
+  for (const status of providerStatus) {
+    const guardada = Boolean(lerChave(status.provider));
+    const li = document.createElement("li");
+    li.className = "chave" + (guardada ? " chave--on" : "");
+
+    const origem = guardada
+      ? '<span class="chave__origem chave__origem--local">neste navegador</span>'
+      : status.configured_in_env
+        ? '<span class="chave__origem">vem do .env do servidor</span>'
+        : '<span class="chave__origem chave__origem--falta">não configurada</span>';
+
+    li.innerHTML = `
+      <div class="chave__cabeca">
+        <span class="chave__nome">${escapeHtml(status.provider)}</span>
+        <span class="chave__papeis">${escapeHtml(status.roles.join(" · "))}</span>
+        ${origem}
+      </div>
+      <div class="chave__acao">
+        <label class="visualmente-oculto" for="key-${escapeHtml(status.provider)}">
+          Chave de API de ${escapeHtml(status.provider)}
+        </label>
+        <input type="password" id="key-${escapeHtml(status.provider)}"
+               class="chave__campo" autocomplete="off" spellcheck="false"
+               placeholder="${guardada ? "•••••••• guardada" : "colar a chave"}"
+               data-input="${escapeHtml(status.provider)}">
+        <button type="button" class="chave__salvar" data-save="${escapeHtml(status.provider)}">
+          ${guardada ? "trocar" : "salvar"}
+        </button>
+        <button type="button" class="chave__remover" data-drop-key="${escapeHtml(status.provider)}"
+                ${guardada ? "" : "disabled"}>remover</button>
+      </div>
+      <p class="chave__erro" data-error="${escapeHtml(status.provider)}" hidden></p>`;
+    keyList.appendChild(li);
+  }
+
+  renderAvisosDeChave();
+  // A disponibilidade do seletor de modelos muda com a chave nova.
+  if (catalog.length) renderModelAvailability();
+}
+
+keyList.addEventListener("click", (event) => {
+  const salvar = event.target.closest("[data-save]");
+  const remover = event.target.closest("[data-drop-key]");
+  if (!salvar && !remover) return;
+
+  const provider = (salvar || remover).dataset.save || (salvar || remover).dataset.dropKey;
+  const erro = keyList.querySelector(`[data-error="${CSS.escape(provider)}"]`);
+  erro.hidden = true;
+
+  if (remover) {
+    gravarChave(provider, "");
+    renderChaves();
+    return;
+  }
+
+  const campo = keyList.querySelector(`[data-input="${CSS.escape(provider)}"]`);
+  const valor = campo.value.trim();
+  if (!valor) {
+    erro.textContent = "Cole a chave antes de salvar.";
+    erro.hidden = false;
+    return;
+  }
+  if (!gravarChave(provider, valor)) {
+    erro.textContent =
+      "Este navegador não permite armazenamento local (aba privativa?). " +
+      "A chave não pôde ser guardada.";
+    erro.hidden = false;
+    return;
+  }
+  // O valor sai do DOM assim que é guardado: não há motivo para ele continuar
+  // legível num campo da página depois de salvo.
+  campo.value = "";
+  renderChaves();
 });
 
 /* ------------------------------------------- índice de técnicas ATT&CK
@@ -790,7 +1004,9 @@ async function ask(question) {
   try {
     const response = await fetch("/api/ask", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // A chave de quem usa vai por cabeçalho, uma por provedor, e só nesta
+      // requisição — o servidor a usa e descarta.
+      headers: { "Content-Type": "application/json", ...cabecalhosDeChave() },
       // `model` só vai quando há escolha válida; sem ele o servidor usa o padrão.
       // Os filtros vão sempre: vazios, o servidor volta a deduzir a técnica do
       // texto da pergunta, que é o comportamento de antes do catálogo existir.
@@ -835,6 +1051,22 @@ fetch("/api/models")
   .catch(() => {
     modelOptions.innerHTML = "";
     modelNote.textContent = "Não deu para ler o catálogo de modelos — a resposta usará o padrão.";
+  });
+
+fetch("/api/settings")
+  .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+  .then((data) => {
+    providerStatus = data.providers;
+    corpusEmbeddingModel = data.corpus_embedding_model || "";
+    renderChaves();
+    // Painel aberto de saída quando falta chave: quem acabou de clonar o
+    // repositório precisa ver o que fazer, não descobrir na primeira pergunta
+    // que falhou.
+    if (!embeddingCoberto() || !geracaoCoberta()) configPanel.open = true;
+  })
+  .catch(() => {
+    keyList.innerHTML =
+      "<li class='chave'>Não deu para ler a configuração do servidor.</li>";
   });
 
 fetch("/api/techniques")
