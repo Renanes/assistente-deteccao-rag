@@ -2,8 +2,8 @@
 
 ## Status atual
 - Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo.**
-  Em manutenção pós-roadmap (ver sessão de 2026-08-29).
-- Última atualização: 2026-08-29
+  Em manutenção pós-roadmap (ver sessão de 2026-08-31).
+- Última atualização: 2026-08-31
 
 ## Decisões de arquitetura
 - **Git dedicado para este projeto** — `agente_detection` estava aninhado
@@ -400,6 +400,16 @@
   provedor de embedding escolhido não bate com o modelo que indexou o corpus —
   esse é o pior modo de falha do "traga sua chave", porque não dá erro: vetores
   de modelos diferentes não são comparáveis e a busca só devolve regra errada.
+- **Prévia mascarada da chave guardada (`sk-pro…abcd`), calculada no navegador**
+  — pedido para o painel mostrar qual chave já está cadastrada, sem expor o
+  valor inteiro, como um painel de faturamento faz. Não é uma chamada nova ao
+  servidor nem uma exceção à regra "nenhum endpoint devolve a chave": o valor
+  já está em `localStorage` deste navegador (`lerChave`, usado para montar o
+  cabeçalho de cada pergunta), então mascarar as pontas na tela é ler um dado
+  que o próprio navegador já tinha, não uma superfície nova. `/api/settings`
+  continua respondendo só com booleano. `mascararChave` mostra os 6 primeiros
+  caracteres e os 4 últimos; abaixo de 8 caracteres mostra só pontos, para não
+  reconstruir por inteiro uma chave curta.
 
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
@@ -1271,3 +1281,41 @@ a chave falsa foi apagada do navegador ao fim.
 **Estado em que a sessão foi deixada:** `pytest` verde (251 testes, 22 de integração), servidor
 reiniciado na porta 8000 com o código novo, `SKILL.md` segue fora do
 versionamento por ser conteúdo de terceiros.
+
+### 2026-08-31 — Sessão 13 (Claude Code)
+
+**Subida da aplicação, a pedido do usuário.** Docker Desktop não estava
+rodando; iniciado, e `docker compose up -d` subiu o Postgres saudável.
+`uvicorn src.api.main:app --host 127.0.0.1 --port 8000` em background;
+`/api/health` confirmou 5.664 chunks indexados, `anthropic/claude-opus-5` para
+geração e `openai/text-embedding-3-small` para embedding (chaves vêm do
+ambiente do SO / `.env`, não coladas na interface).
+
+**Pedido de acompanhamento: mostrar prévia mascarada das chaves já
+cadastradas no painel de Configuração**, com opção de criar/trocar (já
+existia) e deletar (já existia). O que faltava era só a prévia — ver a
+decisão acima em "Decisões de arquitetura". Implementado em
+`src/frontend/app.js` (`mascararChave`, chamada em `renderChaves`) e
+`src/frontend/styles.css` (`.chave__preview`).
+
+**Verificado no navegador** com chave falsa (`sk-proj-teste1234...`, nunca uma
+chave real): salvar mostra `sk-pro…abcd` abaixo do nome do provedor e muda a
+origem para "neste navegador"; remover apaga a prévia e volta a origem para
+"vem do .env do servidor" (a chave do ambiente segue valendo por baixo).
+Nenhuma chamada nova ao servidor — o valor mascarado vem do mesmo
+`localStorage` que já alimentava o cabeçalho da pergunta.
+
+**Bug pego pelo `/code-review` antes do commit:** o limiar original
+(`length <= 8`) deixava passar chaves de 9 e 10 caracteres — as fatias de 6
+(início) e 4 (fim) se tocam ou se sobrepõem nesse tamanho, e o "…" não
+escondia nenhum caractere: a chave inteira aparecia na tela, o oposto do que
+a função existe para fazer. Corrigido para `length <= 10`, que garante pelo
+menos 1 caractere sempre oculto. Chaves reais (40+ caracteres) nunca
+chegaram perto desse limite nos testes manuais, por isso passou despercebido
+na verificação no navegador.
+
+**Estado em que a sessão foi deixada:** aplicação no ar (Postgres saudável,
+uvicorn na porta 8000), mudança de frontend revisada, corrigida e commitada.
+Nenhum teste automatizado cobre `src/frontend/` (é JS/CSS puro, sem harness) —
+a verificação desta sessão foi manual e pela revisão de diff, como as
+anteriores sobre a mesma pasta.

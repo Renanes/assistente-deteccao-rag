@@ -445,6 +445,20 @@ function gravarChave(provider, valor) {
   }
 }
 
+/* Mostra as pontas da chave já guardada, como um painel de faturamento
+   mostra ("sk-ant-…f8a2") — o bastante para reconhecer qual chave é sem
+   expor o suficiente para reconstruí-la olhando por cima do ombro. Isto não
+   é uma chamada ao servidor: a chave já está no localStorage deste
+   navegador, então mascarar aqui não abre nenhuma superfície nova — é o
+   mesmo dado que `lerChave` já lê para montar o cabeçalho da pergunta. */
+function mascararChave(valor) {
+  const limpa = valor.trim();
+  // 6 do início + 4 do fim: abaixo de 11 caracteres as duas fatias se tocam
+  // ou se sobrepõem e "mascarar" mostraria a chave inteira, char por char.
+  if (limpa.length <= 10) return "•".repeat(limpa.length);
+  return `${limpa.slice(0, 6)}…${limpa.slice(-4)}`;
+}
+
 /* Os cabeçalhos que acompanham cada pergunta. O nome de cada um vem do
    servidor (`/api/settings`), e não escrito aqui: duas listas divergiriam na
    primeira mudança, e o sintoma seria a chave viajar num cabeçalho que o
@@ -521,7 +535,8 @@ function renderChaves() {
   keyList.innerHTML = "";
 
   for (const status of providerStatus) {
-    const guardada = Boolean(lerChave(status.provider));
+    const valorGuardado = lerChave(status.provider);
+    const guardada = Boolean(valorGuardado);
     const li = document.createElement("li");
     li.className = "chave" + (guardada ? " chave--on" : "");
 
@@ -531,19 +546,24 @@ function renderChaves() {
         ? '<span class="chave__origem">vem do .env do servidor</span>'
         : '<span class="chave__origem chave__origem--falta">não configurada</span>';
 
+    const preview = guardada
+      ? `<p class="chave__preview" title="Só as pontas aparecem — o resto não sai do localStorage deste navegador.">${escapeHtml(mascararChave(valorGuardado))}</p>`
+      : "";
+
     li.innerHTML = `
       <div class="chave__cabeca">
         <span class="chave__nome">${escapeHtml(status.provider)}</span>
         <span class="chave__papeis">${escapeHtml(status.roles.join(" · "))}</span>
         ${origem}
       </div>
+      ${preview}
       <div class="chave__acao">
         <label class="visualmente-oculto" for="key-${escapeHtml(status.provider)}">
           Chave de API de ${escapeHtml(status.provider)}
         </label>
         <input type="password" id="key-${escapeHtml(status.provider)}"
                class="chave__campo" autocomplete="off" spellcheck="false"
-               placeholder="${guardada ? "•••••••• guardada" : "colar a chave"}"
+               placeholder="${guardada ? "colar para trocar" : "colar a chave"}"
                data-input="${escapeHtml(status.provider)}">
         <button type="button" class="chave__salvar" data-save="${escapeHtml(status.provider)}">
           ${guardada ? "trocar" : "salvar"}

@@ -271,6 +271,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .chave__origem--local { color: var(--afere); }
 .chave__origem--falta { color: var(--ressalva); }
 
+.chave__preview {
+  margin: calc(var(--passo) * 1.5) 0 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  color: var(--vapor);
+  cursor: default;
+}
+
 .chave__acao {
   display: flex;
   gap: calc(var(--passo) * 2);
