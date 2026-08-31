@@ -1314,6 +1314,12 @@ menos 1 caractere sempre oculto. Chaves reais (40+ caracteres) nunca
 chegaram perto desse limite nos testes manuais, por isso passou despercebido
 na verificação no navegador.
 
+**`RESUMO_FUNCIONAL.md` criado**, a pedido do usuário: um resumo de leitura
+rápida focado em *o que a aplicação faz* (funcionalidades, como usar, o que
+está fora de escopo), separado do `README.md` (que é denso em decisões de
+arquitetura) e do `PROGRESS.md` (memória do agente). Números conferidos por
+`grep` contra `README.md`/`PROGRESS.md` antes de commitar — sem divergência.
+
 **Estado em que a sessão foi deixada:** aplicação no ar (Postgres saudável,
 uvicorn na porta 8000), mudança de frontend revisada, corrigida e commitada.
 Nenhum teste automatizado cobre `src/frontend/` (é JS/CSS puro, sem harness) —
