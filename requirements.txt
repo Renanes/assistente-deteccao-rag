@@ -1,7 +1,7 @@
 # --- Núcleo: schema e configuração ---
 pydantic==2.9.2
 pydantic-settings==2.6.1
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 
 # --- Ingestão (as 3 fontes são YAML) ---
 PyYAML==6.0.2
