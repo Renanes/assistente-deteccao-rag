@@ -480,6 +480,28 @@
   vista vive no endereço (`#tecnicas`) via `replaceState`, para o "voltar" do
   navegador não virar um desfazer de abas.
 
+- **Publicado no GitHub sem licenca de software, por escolha do usuario
+  (2026-09-02)** — `Renanes/assistente-deteccao-rag`, publico. A ausencia de
+  licenca foi discutida e decidida: sem ela o padrao legal e "todos os direitos
+  reservados", o que nao atrapalha o uso como portfolio (ler e avaliar o codigo
+  independe de licenca) mas impede reuso por terceiros. Registrado aqui porque
+  a intuicao contraria e comum: "projeto sem fins lucrativos" nao torna o
+  codigo mais aberto — e a licenca que faria isso.
+- **Atribuicao do MITRE ATT&CK e obrigacao, nao cortesia (2026-09-02)** — o
+  `data/attack/techniques.json` e derivado do bundle STIX do ATT&CK e **esta
+  commitado**; a licenca do MITRE exige que qualquer copia reproduza a
+  designacao de direito autoral deles. Fechado com a secao "Fontes e
+  atribuicao" no README e o `data/attack/NOTICE.md`. As regras de deteccao
+  nao sao redistribuidas (`data/raw/` gitignored), o que evita por completo a
+  questao das licencas do Sigma (DRL 1.1), ESCU e Chronicle (Apache-2.0).
+- **E-mail dos commits trocado para o `noreply` do GitHub antes do primeiro
+  push (2026-09-02)** — os 15 commits anteriores carregavam o e-mail pessoal
+  do usuario, que publicar tornaria permanente e coletavel por robo de spam.
+  Reescrito com `filter-branch` enquanto o repositorio ainda era local: depois
+  do push, seria reescrever um historico que ja saiu da maquina. Os backups em
+  `refs/original` foram removidos e os objetos antigos expurgados — o e-mail
+  antigo nao existe mais em lugar nenhum do repositorio.
+
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
   `LLM_PROVIDER=openai`, `EMBEDDING_PROVIDER=openai`,
@@ -1560,3 +1582,33 @@ reescritos para travar invariantes em vez de números: o de "uma vista visível"
 passou a comparar a contagem de vistas com a de abas (acrescentar área não
 exige editar o teste), e o da restrição escrita na tela passou a exigir a frase
 nas duas áreas onde ela importa.
+
+### 2026-09-02 — Sessao 15 (Claude Code)
+
+**Publicacao no GitHub, a pedido do usuario, "de maneira segura".** A parte
+"segura" virou o trabalho principal: antes de qualquer push, varredura de
+segredo blob a blob no historico inteiro (o unico casamento com padrao de chave
+era `sk-ant-api03-chave-falsa-de-teste`, fixture de `test_credentials.py`),
+conferencia de que `.env` nunca foi rastreado, e checagem do que `data/`
+publica.
+
+**O usuario perguntou se o projeto estava pronto para ser publico.** A resposta
+foi "o codigo esta; o repositorio nao", com quatro pendencias concretas — falta
+de licenca, falta de atribuicao ao ATT&CK, e-mail pessoal nos commits, e um
+numero defasado no README (5.666 contra 5.664 em cinco outros lugares). Tres
+foram fechadas; a licenca foi dispensada por decisao dele, registrada acima.
+
+**Trabalho publicado em 4 commits** (`chore` do gitignore, `refactor` dos
+parsers, `feat` da descoberta com a interface em areas, `docs`), mais a
+reescrita de e-mail nos 15 commits antigos. Total: 19 commits, 81 arquivos.
+
+**Conferido no remoto depois do push**, e nao so localmente: `.env` devolve 404
+na API do GitHub, o e-mail no commit publicado e o `noreply`, e a raiz do
+repositorio nao tem `SKILL.md` nem `data/raw/`.
+
+**Estado em que a sessao foi deixada:** `pytest` verde (315 testes, rodados
+depois do `filter-branch` para confirmar que a reescrita nao tocou a arvore),
+remote `origin` configurado, `main` como branch padrao e sincronizado. O branch
+local `feat/indice-tecnicas-attack` ficou identico ao `main` e nao foi enviado.
+
+Repositorio: https://github.com/Renanes/assistente-deteccao-rag
