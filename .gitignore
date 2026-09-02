@@ -10,6 +10,10 @@ data/raw/
 #     `python -m src.ingestion.run`. Não é fonte, não vai para o repo. ---
 data/normalized/
 
+# --- Cache das árvores de repositório lidas pela descoberta. Derivado do
+#     GitHub, reconstruído sozinho, expira em 6 horas. ---
+data/discovery_cache/
+
 # --- Python ---
 __pycache__/
 *.py[cod]
@@ -32,6 +36,12 @@ build/
 
 # --- Docker / Postgres volume local ---
 pgdata/
+
+# --- Conteúdo de terceiros lido como referência, não versionado aqui ---
+# SKILL.md é a skill de frontend-design da Anthropic, baixada para consulta
+# durante o desenvolvimento (ver CLAUDE.md, seção 4). Não é material deste
+# projeto e não deve entrar num `git add -A` distraído.
+SKILL.md
 
 # --- Editores / OS ---
 .vscode/
