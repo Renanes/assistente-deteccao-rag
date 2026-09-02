@@ -85,6 +85,15 @@ class Settings(BaseSettings):
     # --- Retrieval ---
     retrieval_top_k: int = Field(default=5, ge=1)
 
+    # --- Descoberta de novas regras (src/discovery/) ---
+    #
+    # Opcional, e opcional de verdade: sem token a descoberta usa a árvore do
+    # repositório, que a API pública serve a 60 requisições por hora e por IP.
+    # Com token, o teto sobe e a busca de código do GitHub — que é autenticada —
+    # passa a procurar dentro do conteúdo dos arquivos, não só no nome deles.
+    # Um token de leitura pública (`public_repo`, ou nenhum escopo) basta.
+    github_token: str = ""
+
     def has_key_for(self, provider: str) -> bool:
         """Se há chave configurada para um provedor de geração.
 

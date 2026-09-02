@@ -46,110 +46,218 @@
         <dd id="statLlm">—</dd>
       </div>
     </dl>
+  </div>
 
-    <!-- Configuração de chaves. Fica no cabeçalho por falta de barra lateral —
-         o layout é de coluna única — e porque é onde já vivem os medidores que
-         dizem qual provedor está em uso. -->
-    <details class="config" id="configPanel">
-      <summary class="config__abrir">
-        <span aria-hidden="true">⚙</span>
-        <span>Configuração</span>
-        <span class="config__selo" id="configBadge"></span>
-      </summary>
+  <!-- A faixa de controles: o menu das áreas e a Configuração.
 
-      <div class="config__corpo">
-        <p class="config__nota">
-          A chave fica <strong>só neste navegador</strong> e acompanha cada
-          pergunta que você faz. Não é enviada para o <code>.env</code>, não é
-          gravada no servidor e nenhum endpoint a devolve. Quem abrir esta
-          página noutro navegador usa a chave dele.
-        </p>
+       As áreas são tarefas diferentes, não etapas de uma só — perguntar,
+       navegar o que o acervo cobre, trazer regra nova e cuidar de onde ela
+       pode vir. Empilhadas numa página, a pergunta (que é o que a ferramenta
+       faz) competia com a curadoria, que é tarefa de quem mantém o acervo.
 
-        <div class="config__avisos" id="configWarning" hidden></div>
+       São `<button>` e não links: a troca é de vista, não de documento. O
+       endereço acompanha (`#tecnicas`), então recarregar a página ou mandar o
+       link para alguém devolve a mesma área. -->
+  <div class="barra">
+    <div class="barra__interno">
+      <nav class="abas" aria-label="Áreas da ferramenta">
+        <div class="abas__interno" id="abas" role="tablist">
+          <button type="button" class="aba is-on" role="tab" id="abaConsultar"
+                  data-vista="consultar" aria-controls="vistaConsultar" aria-selected="true">
+            <span class="aba__nome">Consultar</span>
+            <span class="aba__nota">pergunta com fonte conferida</span>
+            <span class="aba__selo" id="abaConsultarSelo" hidden></span>
+          </button>
+          <button type="button" class="aba" role="tab" id="abaTecnicas" tabindex="-1"
+                  data-vista="tecnicas" aria-controls="vistaTecnicas" aria-selected="false">
+            <span class="aba__nome">Técnicas</span>
+            <span class="aba__nota" id="abaTecnicasNota">o que o acervo cobre</span>
+          </button>
+          <button type="button" class="aba" role="tab" id="abaAmpliar" tabindex="-1"
+                  data-vista="ampliar" aria-controls="vistaAmpliar" aria-selected="false">
+            <span class="aba__nome">Ampliar</span>
+            <span class="aba__nota" id="abaAmpliarNota">buscar regras novas</span>
+            <span class="aba__selo" id="abaAmpliarSelo" hidden></span>
+          </button>
+          <button type="button" class="aba" role="tab" id="abaRepositorios" tabindex="-1"
+                  data-vista="repositorios" aria-controls="vistaRepositorios" aria-selected="false">
+            <span class="aba__nome">Repositórios</span>
+            <span class="aba__nota" id="abaRepositoriosNota">onde a busca pode entrar</span>
+          </button>
+        </div>
+      </nav>
 
-        <ul class="chaves" id="keyList"></ul>
+      <!-- Configuração de chaves, na mesma faixa do menu: as duas coisas são
+           controles do cabeçalho, e não conteúdo. Aberta, ela toma a faixa
+           inteira e desce para baixo do menu (ver `.config[open]` na folha de
+           estilo) — um painel de chaves espremido na largura que sobra ao lado
+           das abas seria ilegível. -->
+      <details class="config" id="configPanel">
+        <summary class="config__abrir">
+          <span aria-hidden="true">⚙</span>
+          <span>Configuração</span>
+          <span class="config__selo" id="configBadge"></span>
+        </summary>
 
-        <p class="config__rodape">
-          Guardada no <code>localStorage</code>: some se você limpar os dados do
-          site, e fica legível para qualquer script que rode nesta página. Para
-          uso permanente numa máquina sua, o <code>.env</code> continua sendo o
-          lugar certo.
-        </p>
-      </div>
-    </details>
+        <div class="config__corpo">
+          <p class="config__nota">
+            A chave fica <strong>só neste navegador</strong> e acompanha cada
+            pergunta que você faz. Não é enviada para o <code>.env</code>, não é
+            gravada no servidor e nenhum endpoint a devolve. Quem abrir esta
+            página noutro navegador usa a chave dele.
+          </p>
+
+          <div class="config__avisos" id="configWarning" hidden></div>
+
+          <ul class="chaves" id="keyList"></ul>
+
+          <p class="config__rodape">
+            Guardada no <code>localStorage</code>: some se você limpar os dados do
+            site, e fica legível para qualquer script que rode nesta página. Para
+            uso permanente numa máquina sua, o <code>.env</code> continua sendo o
+            lugar certo.
+          </p>
+        </div>
+      </details>
+    </div>
   </div>
 </header>
 
 <main class="bancada">
 
-  <section class="consulta">
-    <form id="askForm">
-      <label class="consulta__rotulo" for="question">O que você precisa detectar?</label>
-      <div class="consulta__linha">
-        <input
-          id="question"
-          name="question"
-          type="text"
-          class="consulta__campo"
-          autocomplete="off"
-          maxlength="1000"
-          placeholder="tem regra pra T1055 no Windows?"
-          required>
-        <button type="submit" class="consulta__acao" id="askSubmit">Consultar</button>
-      </div>
+  <!-- Vista: perguntar. O mapa fica aqui, e não na área do acervo, porque ele
+       é parte da resposta — é ele que mostra a consulta estreitando o acervo
+       inteiro até as poucas regras que sustentam o que foi respondido. -->
+  <section class="vista" id="vistaConsultar" role="tabpanel" aria-labelledby="abaConsultar">
 
-      <ul class="atalhos" id="examples">
-        <li><button type="button" data-q="tem regra pra T1055 no Windows?">T1055 no Windows</button></li>
-        <li><button type="button" data-q="como detectar dump de memória do LSASS?">dump do LSASS</button></li>
-        <li><button type="button" data-q="login suspeito de múltiplos países ao mesmo tempo">login de vários países</button></li>
-        <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
-      </ul>
-
-      <!-- Filtros armados no catálogo. Fica junto do campo de pergunta, e não
-           junto do catálogo, porque é aqui que ele age: quem digita precisa ver
-           o que está restringindo a próxima consulta sem rolar a página. -->
-      <div class="filtros" id="activeFilters" hidden>
-        <span class="filtros__rotulo">Restrito a</span>
-        <ul class="filtros__lista" id="activeFilterList"></ul>
-        <button type="button" class="filtros__limpar" id="clearFilters">limpar</button>
-      </div>
-
-      <fieldset class="modelos">
-        <legend class="modelos__titulo">
-          Modelo que redige a resposta
-          <span class="modelos__unidade">US$ por 1M de tokens de saída</span>
-        </legend>
-        <div class="modelos__grupos" id="modelOptions">
-          <p class="modelos__espera">carregando o catálogo…</p>
+    <section class="consulta">
+      <form id="askForm">
+        <label class="consulta__rotulo" for="question">O que você precisa detectar?</label>
+        <div class="consulta__linha">
+          <input
+            id="question"
+            name="question"
+            type="text"
+            class="consulta__campo"
+            autocomplete="off"
+            maxlength="1000"
+            placeholder="tem regra pra T1055 no Windows?"
+            required>
+          <button type="submit" class="consulta__acao" id="askSubmit">Consultar</button>
         </div>
-        <p class="modelos__nota" id="modelNote">
-          O acervo, a busca e a conferência de citação não mudam com a escolha.
-          Só muda quem escreve a resposta.
-        </p>
-      </fieldset>
-    </form>
+
+        <ul class="atalhos" id="examples">
+          <li><button type="button" data-q="tem regra pra T1055 no Windows?">T1055 no Windows</button></li>
+          <li><button type="button" data-q="como detectar dump de memória do LSASS?">dump do LSASS</button></li>
+          <li><button type="button" data-q="login suspeito de múltiplos países ao mesmo tempo">login de vários países</button></li>
+          <li><button type="button" data-q="bucket S3 aberto para todos os usuários">bucket S3 público</button></li>
+        </ul>
+
+        <!-- Filtros armados no catálogo. Fica junto do campo de pergunta, e não
+             junto do catálogo, porque é aqui que ele age: quem digita precisa ver
+             o que está restringindo a próxima consulta sem rolar a página. -->
+        <div class="filtros" id="activeFilters" hidden>
+          <span class="filtros__rotulo">Restrito a</span>
+          <ul class="filtros__lista" id="activeFilterList"></ul>
+          <button type="button" class="filtros__limpar" id="clearFilters">limpar</button>
+        </div>
+
+        <fieldset class="modelos">
+          <legend class="modelos__titulo">
+            Modelo que redige a resposta
+            <span class="modelos__unidade">US$ por 1M de tokens de saída</span>
+          </legend>
+          <div class="modelos__grupos" id="modelOptions">
+            <p class="modelos__espera">carregando o catálogo…</p>
+          </div>
+          <p class="modelos__nota" id="modelNote">
+            O acervo, a busca e a conferência de citação não mudam com a escolha.
+            Só muda quem escreve a resposta.
+          </p>
+        </fieldset>
+      </form>
+    </section>
+
+    <!-- Elemento de assinatura: o mapa do acervo.
+         Cada célula é uma regra indexada. A consulta acende as que responderam,
+         o que torna visível a única coisa que o produto realmente faz: estreitar
+         5.664 regras até as poucas que sustentam a resposta. -->
+    <section class="acervo" aria-labelledby="acervoTitulo">
+      <h2 class="acervo__titulo" id="acervoTitulo">Mapa do acervo</h2>
+      <canvas class="acervo__mapa" id="corpusCanvas" role="img"
+              aria-label="Mapa do acervo de regras indexadas"></canvas>
+      <p class="acervo__legenda" id="corpusLegend">
+        Uma célula por regra indexada. A consulta acende as que responderem.
+      </p>
+    </section>
+
+    <section class="estado" id="stateIdle">
+      <p class="estado__chamada">
+        Pergunte em linguagem natural. A resposta cita a regra exata que a
+        sustenta — e a citação é conferida em código antes de chegar aqui.
+      </p>
+      <ol class="percurso">
+        <li><span class="percurso__passo">pergunta</span> vira vetor e, se citar uma técnica ATT&amp;CK, também um filtro rígido.</li>
+        <li><span class="percurso__passo">acervo</span> devolve as regras mais próximas, com posição e similaridade.</li>
+        <li><span class="percurso__passo">resposta</span> sai só do que foi recuperado, com as citações conferidas.</li>
+      </ol>
+    </section>
+
+    <section class="estado estado--ocupado" id="stateBusy" hidden aria-live="polite">
+      <span class="pulso" aria-hidden="true"></span>
+      <p>Consultando o acervo…</p>
+    </section>
+
+    <section class="estado estado--erro" id="stateError" hidden role="alert">
+      <h2 id="errorTitle">A consulta não completou</h2>
+      <p id="errorDetail"></p>
+    </section>
+
+    <section class="resultado" id="result" hidden>
+
+      <article class="resposta">
+        <div class="resposta__topo">
+          <div class="afericao" id="seal">
+            <span class="afericao__marca" aria-hidden="true"></span>
+            <div class="afericao__texto">
+              <strong id="sealTitle">—</strong>
+              <span id="sealDetail"></span>
+            </div>
+          </div>
+          <p class="resposta__meta" id="answerMeta"></p>
+        </div>
+
+        <div class="aviso" id="noticeRelaxed" hidden>
+          <strong>Não há regra para o termo pedido.</strong>
+          <span id="noticeRelaxedDetail"></span>
+        </div>
+        <div class="aviso" id="noticeInvalid" hidden>
+          <strong>Citação inexistente na resposta.</strong>
+          <span id="noticeInvalidDetail"></span>
+        </div>
+
+        <div class="prosa" id="answerBody"></div>
+      </article>
+
+      <aside class="evidencia">
+        <h2 class="evidencia__titulo">
+          Regras recuperadas
+          <span class="evidencia__conta" id="evidenceCount"></span>
+        </h2>
+        <ol class="fichas" id="cards"></ol>
+      </aside>
+
+    </section>
   </section>
 
-  <!-- Elemento de assinatura: o mapa do acervo.
-       Cada célula é uma regra indexada. A consulta acende as que responderam,
-       o que torna visível a única coisa que o produto realmente faz: estreitar
-       5.664 regras até as poucas que sustentam a resposta. -->
-  <section class="acervo" aria-labelledby="acervoTitulo">
-    <h2 class="acervo__titulo" id="acervoTitulo">Mapa do acervo</h2>
-    <canvas class="acervo__mapa" id="corpusCanvas" role="img"
-            aria-label="Mapa do acervo de regras indexadas"></canvas>
-    <p class="acervo__legenda" id="corpusLegend">
-      Uma célula por regra indexada. A consulta acende as que responderem.
-    </p>
-
-    <!-- O catálogo é o detalhamento do mapa: as mesmas regras, agrupadas pelo
-         que cobrem. Recolhido por padrão — 187 famílias abertas afogariam a
-         pergunta, que é o que a página existe para fazer. -->
-    <details class="catalogo" id="catalogo">
-      <summary class="catalogo__abrir">
-        <span class="catalogo__abrir-titulo">Índice de técnicas ATT&amp;CK</span>
-        <span class="catalogo__abrir-resumo" id="catalogSummary">carregando…</span>
-      </summary>
+  <!-- Vista: o que o acervo cobre. Clicar numa técnica arma um filtro que age
+       na pergunta, na outra vista — por isso o aviso com o caminho de volta. -->
+  <section class="vista" id="vistaTecnicas" role="tabpanel" aria-labelledby="abaTecnicas" hidden>
+    <section class="catalogo" id="catalogo" aria-labelledby="catalogoTitulo">
+      <header class="vista__cabeca">
+        <h2 class="vista__titulo" id="catalogoTitulo">Índice de técnicas ATT&amp;CK</h2>
+        <p class="vista__resumo" id="catalogSummary">carregando…</p>
+      </header>
 
       <div class="catalogo__corpo">
         <p class="catalogo__nota" id="catalogNote"></p>
@@ -160,70 +268,159 @@
                  placeholder="filtrar por ID ou nome — lsass, T1003, registry…">
         </label>
 
+        <div class="armado" id="armedNotice" hidden>
+          <p class="armado__texto" id="armedText"></p>
+          <button type="button" class="armado__ir" data-vista="consultar">
+            Ir para a pergunta
+          </button>
+        </div>
+
         <ul class="catalogo__lista" id="catalogList"></ul>
         <p class="catalogo__vazio" id="catalogEmpty" hidden>
           Nenhuma técnica do acervo corresponde a esse texto.
         </p>
       </div>
-    </details>
+    </section>
   </section>
 
-  <section class="estado" id="stateIdle">
-    <p class="estado__chamada">
-      Pergunte em linguagem natural. A resposta cita a regra exata que a
-      sustenta — e a citação é conferida em código antes de chegar aqui.
-    </p>
-    <ol class="percurso">
-      <li><span class="percurso__passo">pergunta</span> vira vetor e, se citar uma técnica ATT&amp;CK, também um filtro rígido.</li>
-      <li><span class="percurso__passo">acervo</span> devolve as regras mais próximas, com posição e similaridade.</li>
-      <li><span class="percurso__passo">resposta</span> sai só do que foi recuperado, com as citações conferidas.</li>
-    </ol>
-  </section>
+  <!-- Vista: trazer regra nova. É a única área que escreve no acervo, e só
+       depois de uma aprovação explícita, uma regra por vez. -->
+  <section class="vista" id="vistaAmpliar" role="tabpanel" aria-labelledby="abaAmpliar" hidden>
+    <section class="aquisicao" id="descoberta" aria-labelledby="descobertaTitulo">
+      <header class="vista__cabeca">
+        <h2 class="vista__titulo" id="descobertaTitulo">Ampliar o acervo</h2>
+        <p class="vista__resumo" id="discoverySummary">buscar regras novas em repositórios confiáveis</p>
+      </header>
 
-  <section class="estado estado--ocupado" id="stateBusy" hidden aria-live="polite">
-    <span class="pulso" aria-hidden="true"></span>
-    <p>Consultando o acervo…</p>
-  </section>
+      <div class="aquisicao__corpo">
+        <p class="aquisicao__nota">
+          A busca só entra nos repositórios confiáveis cadastrados. Cada regra
+          encontrada volta com o repositório e o arquivo de onde saiu, e nenhuma
+          entra no acervo antes de você aprovar.
+          <button type="button" class="aquisicao__ir" data-vista="repositorios">
+            ver os repositórios
+          </button>
+        </p>
 
-  <section class="estado estado--erro" id="stateError" hidden role="alert">
-    <h2 id="errorTitle">A consulta não completou</h2>
-    <p id="errorDetail"></p>
-  </section>
-
-  <section class="resultado" id="result" hidden>
-
-    <article class="resposta">
-      <div class="resposta__topo">
-        <div class="afericao" id="seal">
-          <span class="afericao__marca" aria-hidden="true"></span>
-          <div class="afericao__texto">
-            <strong id="sealTitle">—</strong>
-            <span id="sealDetail"></span>
+        <form id="discoveryForm" class="aquisicao__form">
+          <label class="visualmente-oculto" for="discoveryPrompt">
+            O que você quer passar a detectar
+          </label>
+          <div class="aquisicao__linha">
+            <input
+              id="discoveryPrompt"
+              name="prompt"
+              type="text"
+              class="aquisicao__campo"
+              autocomplete="off"
+              maxlength="500"
+              placeholder="abuso de LAPS e delegação Kerberos no Active Directory"
+              required>
+            <button type="submit" class="aquisicao__acao" id="discoverySubmit">Procurar</button>
           </div>
+        </form>
+
+        <!-- O relatório da busca. Não é telemetria decorativa: termo errado
+             acha regra errada, e sem ver os termos ninguém consegue corrigir o
+             pedido. -->
+        <div class="relatorio" id="discoveryReadout" hidden>
+          <dl class="relatorio__linha">
+            <div class="relatorio__item relatorio__item--largo">
+              <dt>procurou por</dt>
+              <dd id="discoveryTerms">—</dd>
+            </div>
+            <div class="relatorio__item">
+              <dt>origens</dt>
+              <dd id="discoverySources">—</dd>
+            </div>
+            <div class="relatorio__item">
+              <dt>arquivos lidos</dt>
+              <dd id="discoveryFiles">—</dd>
+            </div>
+            <div class="relatorio__item">
+              <dt>já no acervo</dt>
+              <dd id="discoveryKnown">—</dd>
+            </div>
+          </dl>
+          <p class="relatorio__origem" id="discoveryPlanSource"></p>
+          <div class="relatorio__avisos" id="discoveryWarnings" hidden></div>
         </div>
-        <p class="resposta__meta" id="answerMeta"></p>
+
+        <ol class="propostas" id="discoveryList"></ol>
+        <p class="aquisicao__vazio" id="discoveryEmpty" hidden></p>
+
       </div>
+    </section>
+  </section>
 
-      <div class="aviso" id="noticeRelaxed" hidden>
-        <strong>Não há regra para o termo pedido.</strong>
-        <span id="noticeRelaxedDetail"></span>
+  <!-- Vista: os repositórios confiáveis. É o limite do que a descoberta
+       enxerga, e por isso ganhou área própria em vez de continuar como um
+       painel recolhido dentro da busca: quem avalia a ferramenta precisa
+       conseguir ver — e mudar — a lista sem antes fazer uma busca. -->
+  <section class="vista" id="vistaRepositorios" role="tabpanel" aria-labelledby="abaRepositorios" hidden>
+    <section class="origens" aria-labelledby="origensTitulo">
+      <header class="vista__cabeca">
+        <h2 class="vista__titulo" id="origensTitulo">Repositórios confiáveis</h2>
+        <p class="vista__resumo" id="sourcesCount">—</p>
+      </header>
+
+      <div class="origens__corpo">
+        <p class="origens__aviso">
+          A busca de regras novas entra <strong>apenas</strong> nestes
+          repositórios. Não há campo para apontá-la a um endereço qualquer: o
+          código recusa qualquer host fora desta lista, antes de a requisição
+          sair.
+        </p>
+
+        <p class="origens__nota" id="sourcesTokenNote"></p>
+
+        <ul class="origens__lista" id="sourceList"></ul>
+
+        <form class="origens__form" id="sourceForm">
+          <h3 class="origens__titulo">Cadastrar um repositório</h3>
+          <p class="origens__ajuda">
+            Só entram repositórios cujas regras os parsers já sabem ler:
+            Sigma e Splunk ESCU em YAML, YARA-L em <code>.yaral</code>.
+            Coleções em outro formato — TOML do Elastic, por exemplo —
+            seriam cadastradas e não devolveriam nada.
+          </p>
+
+          <div class="origens__campos">
+            <label class="campo">
+              <span class="campo__rotulo">Repositório</span>
+              <input type="text" id="sourceSlug" placeholder="dono/repositorio"
+                     autocomplete="off" spellcheck="false" required>
+            </label>
+
+            <label class="campo">
+              <span class="campo__rotulo">Branch <em>(opcional)</em></span>
+              <input type="text" id="sourceRef" placeholder="o padrão do repositório"
+                     autocomplete="off" spellcheck="false">
+            </label>
+
+            <label class="campo">
+              <span class="campo__rotulo">Pasta das regras <em>(opcional)</em></span>
+              <input type="text" id="sourcePaths" placeholder="rules, detections"
+                     autocomplete="off" spellcheck="false">
+            </label>
+
+            <!-- Formato à vista, e não num menu suspenso: cadastrar com o
+                 formato errado não dá erro, dá uma origem que nunca
+                 devolve nada. As três opções visíveis também dizem quais
+                 formatos existem, que é a dúvida de quem chega aqui. -->
+            <fieldset class="campo campo--formato">
+              <legend class="campo__rotulo">Formato das regras</legend>
+              <div class="formatos" id="sourceFormat"></div>
+            </fieldset>
+          </div>
+
+          <div class="origens__acao">
+            <button type="submit" class="origens__salvar" id="sourceSubmit">Cadastrar</button>
+            <p class="origens__erro" id="sourceError" hidden></p>
+          </div>
+        </form>
       </div>
-      <div class="aviso" id="noticeInvalid" hidden>
-        <strong>Citação inexistente na resposta.</strong>
-        <span id="noticeInvalidDetail"></span>
-      </div>
-
-      <div class="prosa" id="answerBody"></div>
-    </article>
-
-    <aside class="evidencia">
-      <h2 class="evidencia__titulo">
-        Regras recuperadas
-        <span class="evidencia__conta" id="evidenceCount"></span>
-      </h2>
-      <ol class="fichas" id="cards"></ol>
-    </aside>
-
+    </section>
   </section>
 </main>
 

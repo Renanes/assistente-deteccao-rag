@@ -191,3 +191,128 @@ class TechniquesResponse(BaseModel):
     unknown_ids: list[str] = Field(default_factory=list)
     deprecated_ids: list[str] = Field(default_factory=list)
     revoked_ids: list[str] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------
+# Descoberta de novos casos de uso (src/discovery/)
+# --------------------------------------------------------------------------
+
+
+class TrustedSourceOut(BaseModel):
+    """Um repositório confiável, como o menu de origens o exibe."""
+
+    slug: str
+    ref: str
+    label: str
+    rule_format: str
+    path_prefixes: list[str] = Field(default_factory=list)
+    note: str = ""
+    enabled: bool = True
+    is_seed: bool = Field(description="Veio pré-cadastrado com a ferramenta.")
+
+
+class SourcesResponse(BaseModel):
+    sources: list[TrustedSourceOut] = Field(default_factory=list)
+    #: Formatos que os parsers da Fase 1 sabem ler. A interface usa isto para
+    #: montar o seletor em vez de repetir a lista — um formato acrescentado no
+    #: backend aparece no menu sem tocar no JavaScript.
+    formats: list[str] = Field(default_factory=list)
+    #: Se o servidor tem `GITHUB_TOKEN`. Muda o que a busca consegue fazer, e
+    #: por isso é dito na tela em vez de virar uma diferença silenciosa de
+    #: qualidade dos resultados.
+    has_github_token: bool = False
+
+
+class AddSourceRequest(BaseModel):
+    slug: str = Field(min_length=3, max_length=140, description="dono/repo, ou a URL do GitHub.")
+    rule_format: str = Field(description="sigma | splunk_escu | yara_l.")
+    #: Ausente, o branch padrão do repositório é descoberto no GitHub. Pedir que
+    #: quem cadastra saiba de cor se é `main` ou `master` seria uma pegadinha.
+    ref: str | None = Field(default=None, max_length=100)
+    label: str | None = Field(default=None, max_length=80)
+    path_prefixes: list[str] = Field(default_factory=list, max_length=10)
+    note: str | None = Field(default=None, max_length=400)
+
+
+class ProposalOut(BaseModel):
+    """Uma regra encontrada, com o bastante para decidir sem sair da página."""
+
+    rule_uid: str
+    status: str = Field(description="pending | approved | rejected.")
+
+    title: str
+    description: str = ""
+    query: str
+    query_language: str
+    #: A lógica exibida passa pelo mesmo teto da indexação. Quando corta, a
+    #: ficha remete à fonte em vez de fingir que mostrou a regra inteira.
+    query_truncated: bool = False
+    platforms: list[str] = Field(default_factory=list)
+    mitre_techniques: list[str] = Field(default_factory=list)
+    severity: str | None = None
+    author: str | None = None
+    references: list[str] = Field(default_factory=list)
+
+    #: Procedência — a razão de a proposta ser auditável. Sem o repositório e o
+    #: caminho, aprovar é confiar num texto que apareceu na tela.
+    source_slug: str
+    source_label: str
+    source_path: str
+    source_url: str
+    rule_source: str = Field(description="O formato/fonte no schema comum: sigma, splunk_escu…")
+
+    score: float
+    matched_terms: list[str] = Field(default_factory=list)
+    matched_techniques: list[str] = Field(default_factory=list)
+    found_by: list[str] = Field(default_factory=list)
+
+
+class DiscoverRequest(BaseModel):
+    prompt: str = Field(min_length=3, max_length=500)
+    #: Restringe a busca a algumas das origens cadastradas. Vazio significa
+    #: todas as habilitadas — nunca "qualquer repositório".
+    sources: list[str] = Field(default_factory=list, max_length=20)
+    limit: int = Field(default=12, ge=1, le=30)
+
+
+class DiscoverResponse(BaseModel):
+    prompt: str
+    proposals: list[ProposalOut] = Field(default_factory=list)
+
+    #: Como o pedido virou termos de busca. Exposto porque é a decisão que mais
+    #: explica um resultado ruim: termo errado acha regra errada.
+    terms: list[str] = Field(default_factory=list)
+    techniques: list[str] = Field(default_factory=list)
+    expanded_by_model: bool = False
+    model: str = ""
+
+    sources_searched: list[str] = Field(default_factory=list)
+    files_read: int = 0
+    rules_parsed: int = 0
+    already_indexed: int = Field(
+        default=0, description="Encontradas, mas já presentes no acervo indexado."
+    )
+    requests: int = 0
+    rate_limit_remaining: int | None = None
+    warnings: list[str] = Field(default_factory=list)
+    elapsed_ms: int = 0
+
+
+class DecideRequest(BaseModel):
+    rule_uid: str = Field(min_length=1, max_length=200)
+    decision: str = Field(description="approve | reject.")
+
+
+class DecideResponse(BaseModel):
+    rule_uid: str
+    status: str
+    title: str
+    indexed_chunks: int = Field(default=0, description="Chunks escritos no acervo.")
+    message: str
+
+
+class ProposalsResponse(BaseModel):
+    proposals: list[ProposalOut] = Field(default_factory=list)
+    pending: int = 0
+    approved: int = 0
+    rejected: int = 0

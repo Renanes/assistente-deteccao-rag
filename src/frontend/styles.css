@@ -165,6 +165,139 @@ button { font: inherit; color: inherit; cursor: pointer; }
   color: var(--luz);
 }
 
+/* ------------------------------------------------------------------- abas
+
+   O menu das três áreas, na segunda linha do cabeçalho. Segunda linha e não a
+   mesma dos medidores: com marca, três medidores e a Configuração, a primeira
+   linha já ocupa a largura útil, e espremer as abas ali as faria quebrar em
+   qualquer tela intermediária.
+
+   A aba ativa é marcada por um sulco em latão embaixo, não por um bloco de
+   fundo. É o vocabulário do resto da página — a ficha citada e a técnica
+   escolhida também marcam estado com latão numa aresta, nunca preenchendo. */
+
+.barra {
+  border-top: var(--sulco);
+  background: rgba(11, 31, 40, 0.72);
+}
+
+.barra__interno {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: calc(var(--passo) * 6);
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 calc(var(--passo) * 7);
+}
+
+.abas { flex: 1 1 auto; min-width: 0; }
+
+.abas__interno {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 6);
+}
+
+.aba {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: calc(var(--passo) * 2.5) 0 calc(var(--passo) * 2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  text-align: left;
+  color: var(--vapor);
+}
+
+.aba:hover { color: var(--luz); }
+.aba.is-on { color: var(--luz); border-bottom-color: var(--latao); }
+
+.aba__nome {
+  font-family: var(--display);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.aba.is-on .aba__nome { color: var(--latao); }
+
+.aba__nota {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #5d7f8c;
+}
+
+/* O selo é um número que a área tem para você agora: filtros armados, ou
+   propostas por decidir. Fica escondido quando é zero — "0" permanente é
+   ruído. */
+.aba__selo {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0 5px;
+  border: 1px solid #4a3d1f;
+  border-radius: 2px;
+  background: var(--latao-fraco);
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--latao);
+}
+
+/* ------------------------------------------------------------------ vistas */
+
+.vista { display: block; }
+
+.vista__cabeca {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--passo) * 3);
+  padding-bottom: calc(var(--passo) * 3);
+  border-bottom: var(--sulco);
+}
+
+.vista__titulo {
+  font-size: 19px;
+  letter-spacing: 0.01em;
+}
+
+.vista__resumo {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #5d7f8c;
+}
+
+/* O aviso de filtro armado, dentro de Técnicas: o efeito do clique acontece
+   noutra vista, então o caminho de volta precisa estar aqui. */
+.armado {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 3);
+  margin: calc(var(--passo) * 3) 0;
+  padding: calc(var(--passo) * 2.5) calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-left: 2px solid var(--latao);
+  border-radius: 2px;
+  background: rgba(43, 42, 29, 0.35);
+}
+
+.armado__texto { flex: 1; min-width: 0; font-size: 12.5px; color: var(--luz); }
+
+.armado__ir {
+  padding: calc(var(--passo)) calc(var(--passo) * 3);
+  border: 1px solid var(--latao);
+  border-radius: 2px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--latao);
+}
+
+.armado__ir:hover { background: var(--latao); color: var(--petroleo); }
+
 /* ------------------------------------------------------------ configuração
 
    Painel de chaves. Some do fluxo quando esta tudo configurado e se abre
@@ -172,16 +305,25 @@ button { font: inherit; color: inherit; cursor: pointer; }
    o que fazer, nao descobrir na primeira pergunta que falhou. */
 
 .config {
-  flex-basis: 100%;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* Aberta, ela toma a faixa inteira e desce para baixo do menu. É o único jeito
+   honesto de as duas coisas dividirem a mesma linha: fechada, a Configuração é
+   um botão do tamanho do rótulo; aberta, é um painel com campo de chave, aviso
+   e rodapé — e nada disso cabe na largura que sobra ao lado das abas. */
+.config[open] {
+  flex: 1 0 100%;
+  align-self: stretch;
   border-top: var(--sulco);
-  margin-top: calc(var(--passo) * 2);
 }
 
 .config__abrir {
   display: flex;
   align-items: center;
   gap: calc(var(--passo) * 2);
-  padding: calc(var(--passo) * 2.5) 0 0;
+  padding: calc(var(--passo) * 2.5) 0;
   cursor: pointer;
   font-family: var(--mono);
   font-size: 11px;
@@ -542,43 +684,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
    fim de um manual de referência. Duas peças chamativas competindo dentro da
    mesma seção anulariam as duas. */
 
-.catalogo {
-  margin-top: calc(var(--passo) * 4);
-  border-top: var(--sulco);
-}
+.catalogo { display: block; }
 
-.catalogo__abrir {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: calc(var(--passo) * 2);
-  padding: calc(var(--passo) * 3) 0 0;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--vapor);
-  list-style: none;
-}
 
-.catalogo__abrir::-webkit-details-marker { display: none; }
-
-.catalogo__abrir::before {
-  content: "▸";
-  color: var(--latao);
-  transition: transform 120ms ease;
-}
-
-.catalogo[open] > .catalogo__abrir::before { transform: rotate(90deg); }
-.catalogo__abrir:hover { color: var(--luz); }
-
-.catalogo__abrir-titulo {
-  font-family: var(--display);
-  font-size: 13px;
-  letter-spacing: 0.02em;
-  color: var(--luz);
-}
-
-.catalogo__abrir-resumo { margin-left: auto; color: #5d7f8c; }
 
 .catalogo__corpo { padding-top: calc(var(--passo) * 3); }
 
@@ -605,10 +713,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .catalogo__busca input:hover { border-color: #2a5a6d; }
 
 .catalogo__lista {
-  /* Teto de altura com rolagem própria: 187 famílias empurrariam a pergunta
-     para fora da tela, e a pergunta é o que a página existe para fazer. */
-  max-height: 460px;
-  overflow-y: auto;
+  /* Sem teto de altura desde que o índice virou vista própria. O teto existia
+     para as 187 famílias não empurrarem a pergunta para fora da tela; agora a
+     pergunta está noutra área, e uma lista com rolagem própria dentro de uma
+     página que já rola é duas barras de rolagem para o mesmo gesto. */
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1093,6 +1201,475 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .ficha__logica code { font-size: 11.5px; color: var(--luz); }
 .ficha__corte { margin-top: calc(var(--passo) * 2); font-size: 11px; color: var(--ressalva); }
 
+/* ------------------------------------------------- ampliar o acervo
+
+   Mesma gramática do índice de técnicas — sulco superior, seta em latão,
+   corpo recolhido — porque é o mesmo tipo de coisa: um painel de trabalho
+   dentro da seção do acervo, não uma segunda tela. A assinatura da página
+   continua sendo o mapa; aqui a ousadia gasta é zero, de propósito.
+
+   O único desvio é a faixa em latão da proposta (`.proposta`), que marca o
+   que ainda **não** faz parte do acervo. É o mesmo recurso que a ficha citada
+   usa para marcar o que sustentou a resposta, e é o par certo: os dois
+   significam "esta linha tem consequência". */
+
+.aquisicao { display: block; }
+
+
+
+.aquisicao__corpo { padding-top: calc(var(--passo) * 3); }
+
+.aquisicao__nota {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--vapor);
+}
+
+/* O caminho de Ampliar para a lista de repositórios. Botão em linha com o
+   texto, e não um bloco: ele é uma frase da nota, não uma ação de peso igual
+   ao "Procurar". */
+.aquisicao__ir {
+  padding: 0 calc(var(--passo));
+  border: 0;
+  border-bottom: 1px solid var(--fresa);
+  background: none;
+  font: inherit;
+  color: var(--latao);
+}
+
+.aquisicao__ir:hover { border-bottom-color: var(--latao); }
+
+.aquisicao__form { margin: calc(var(--passo) * 4) 0 0; }
+
+.aquisicao__linha { display: flex; gap: calc(var(--passo) * 2); }
+
+.aquisicao__campo {
+  flex: 1;
+  min-width: 0;
+  padding: calc(var(--passo) * 2.5) calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+  color: var(--luz);
+  font-family: var(--corpo);
+  font-size: 14px;
+}
+
+.aquisicao__campo::placeholder { color: #5d7f8c; }
+.aquisicao__campo:hover { border-color: #2a5a6d; }
+
+.aquisicao__acao {
+  flex: none;
+  padding: calc(var(--passo) * 2.5) calc(var(--passo) * 5);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  background: var(--bancada);
+  color: var(--luz);
+  font-family: var(--display);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.aquisicao__acao:hover:not(:disabled) { border-color: var(--latao); color: var(--latao); }
+.aquisicao__acao:disabled { opacity: 0.5; cursor: progress; }
+
+.aquisicao__vazio {
+  padding: calc(var(--passo) * 4) 0;
+  font-size: 12.5px;
+  color: var(--vapor);
+}
+
+/* --- relatório da busca --- */
+
+.relatorio {
+  margin-top: calc(var(--passo) * 4);
+  padding: calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: rgba(16, 44, 56, 0.55);
+}
+
+.relatorio__linha {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--passo) * 5);
+  margin: 0;
+}
+
+.relatorio__item { min-width: 0; }
+.relatorio__item--largo { flex: 1 1 240px; }
+
+.relatorio__item dt {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #5d7f8c;
+}
+
+.relatorio__item dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--luz);
+  word-break: break-word;
+}
+
+.relatorio__origem {
+  margin-top: calc(var(--passo) * 2);
+  font-size: 11px;
+  color: #5d7f8c;
+}
+
+.relatorio__avisos {
+  margin-top: calc(var(--passo) * 3);
+  padding-top: calc(var(--passo) * 3);
+  border-top: var(--sulco);
+  font-size: 11.5px;
+  color: var(--ressalva);
+}
+
+.relatorio__avisos p + p { margin-top: calc(var(--passo)); }
+
+/* --- propostas --- */
+
+.propostas {
+  display: grid;
+  gap: calc(var(--passo) * 3);
+  margin: calc(var(--passo) * 4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.propostas:empty { margin: 0; }
+
+.proposta {
+  padding: calc(var(--passo) * 4);
+  border: var(--sulco);
+  border-left: 2px solid var(--latao);
+  border-radius: 2px;
+  background: var(--bancada);
+}
+
+.proposta.is-decidida { border-left-color: var(--fresa); opacity: 0.72; }
+
+.proposta__topo {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--passo) * 3);
+}
+
+.proposta__titulo { flex: 1; min-width: 0; font-size: 14px; line-height: 1.35; }
+
+.proposta__nota {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--vapor);
+}
+
+.proposta__descricao {
+  margin-top: calc(var(--passo) * 2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--vapor);
+}
+
+/* A procedência é o que torna a aprovação uma decisão e não um chute. Fica
+   acima das etiquetas, em mono, com o repositório destacado do caminho. */
+.proposta__origem {
+  margin-top: calc(var(--passo) * 3);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--vapor);
+  word-break: break-all;
+}
+
+.proposta__origem a { color: var(--vapor); text-decoration-color: var(--fresa); text-underline-offset: 3px; }
+.proposta__origem a:hover { color: var(--latao); }
+.proposta__repo { color: var(--latao); }
+
+.proposta__logica { margin-top: calc(var(--passo) * 3); }
+
+.proposta__logica summary {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--vapor);
+  cursor: pointer;
+}
+
+.proposta__logica summary:hover { color: var(--latao); }
+
+.proposta__logica pre {
+  overflow-x: auto;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 3);
+  background: var(--petroleo);
+  border: var(--sulco);
+  border-radius: 2px;
+}
+
+.proposta__logica code { font-size: 11.5px; color: var(--luz); }
+
+.proposta__corte {
+  margin-top: calc(var(--passo) * 2);
+  font-size: 11px;
+  color: var(--ressalva);
+}
+
+.proposta__acao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 2);
+  margin-top: calc(var(--passo) * 4);
+}
+
+.proposta__add,
+.proposta__no {
+  padding: calc(var(--passo) * 1.5) calc(var(--passo) * 3);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  background: var(--petroleo);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--vapor);
+}
+
+.proposta__add:hover:not(:disabled) { border-color: var(--afere); color: var(--afere); }
+.proposta__no:hover:not(:disabled) { border-color: var(--ressalva); color: var(--ressalva); }
+.proposta__add:disabled,
+.proposta__no:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.proposta__estado {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--vapor);
+}
+
+.proposta__estado--ok { color: var(--afere); }
+.proposta__estado--no { color: var(--ressalva); }
+.proposta__estado--erro { color: var(--ressalva); }
+
+/* --- menu de origens confiáveis --- */
+
+/* Sem caixa própria: a área inteira é a lista, e uma moldura em volta do
+   conteúdo de uma vista é uma borda que não separa nada de nada. */
+.origens { display: block; }
+
+/* A frase que diz o que a lista significa. Fica em latão na aresta porque é a
+   propriedade que a ferramenta promete, não um aviso de erro. */
+.origens__aviso {
+  margin: calc(var(--passo) * 4) 0;
+  padding: calc(var(--passo) * 3);
+  border-left: 2px solid var(--latao);
+  background: rgba(43, 42, 29, 0.35);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--vapor);
+}
+
+.origens__aviso strong { color: var(--luz); }
+
+
+.origens__corpo { padding: 0; }
+
+.origens__nota {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #5d7f8c;
+}
+
+.origens__lista {
+  display: grid;
+  gap: calc(var(--passo) * 2);
+  margin: calc(var(--passo) * 3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.origem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--passo) * 2);
+  padding: calc(var(--passo) * 2) calc(var(--passo) * 3);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+}
+
+.origem__slug {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--luz);
+  word-break: break-all;
+}
+
+.origem__formato {
+  padding: 1px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--latao);
+  border: 1px solid #4a3d1f;
+  border-radius: 2px;
+  background: var(--latao-fraco);
+}
+
+.origem__semente {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: #5d7f8c;
+}
+
+.origem__nota {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--vapor);
+}
+
+.origem__tirar {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: var(--sulco);
+  border-radius: 2px;
+  background: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--vapor);
+}
+
+.origem__tirar:hover { border-color: var(--ressalva); color: var(--ressalva); }
+
+.origens__form { margin-top: calc(var(--passo) * 5); }
+
+.origens__titulo {
+  font-family: var(--display);
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  color: var(--luz);
+}
+
+.origens__ajuda {
+  margin-top: calc(var(--passo) * 2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--vapor);
+}
+
+.origens__ajuda code { font-size: 11px; color: var(--latao); }
+
+.origens__campos {
+  display: grid;
+  /* Três colunas explícitas, e não `auto-fit`: o fieldset do formato ocupa a
+     linha inteira, então nenhuma trilha fica vazia e o `auto-fit` não colapsa
+     nada — numa vista de 1.224 px ele criava seis trilhas e deixava os três
+     campos de texto ocupando metade da largura, com o resto em branco. */
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: calc(var(--passo) * 3);
+  margin-top: calc(var(--passo) * 3);
+  /* Campo de texto não melhora esticando: 920 px já é mais que o dobro do que
+     cabe num nome de repositório. */
+  max-width: 920px;
+}
+
+.campo { display: flex; flex-direction: column; gap: calc(var(--passo)); min-width: 0; }
+
+.campo__rotulo {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #5d7f8c;
+}
+
+.campo__rotulo em { font-style: normal; text-transform: none; letter-spacing: 0; }
+
+/* O formato ocupa a linha inteira do formulário: as três opções somam ~420 px
+   e não cabem numa coluna de 190. Espremidas, elas quebravam em três linhas e
+   a coluna do formato ficava com o dobro da altura das vizinhas. */
+.campo--formato {
+  grid-column: 1 / -1;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.formatos { display: flex; flex-wrap: wrap; gap: calc(var(--passo)); }
+
+.formato {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--passo));
+  padding: calc(var(--passo)) calc(var(--passo) * 2);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--vapor);
+  cursor: pointer;
+}
+
+.formato input { accent-color: var(--latao); margin: 0; }
+
+/* O rótulo não quebra: "Splunk ESCU (YAML)" em três linhas dobra a altura da
+   ficha e desalinha as três. (O texto quebrava mesmo com espaço de sobra na
+   linha — o `<span>` é item de flex e recebia largura de min-content quando o
+   pai era dimensionado por max-content.) */
+.formato span { white-space: nowrap; }
+.formato:hover { border-color: #2a5a6d; color: var(--luz); }
+.formato.is-on { border-color: var(--latao); color: var(--luz); }
+.formato:has(input:focus-visible) { outline: 2px solid var(--latao); outline-offset: 2px; }
+
+.campo input,
+.campo select {
+  width: 100%;
+  padding: calc(var(--passo) * 1.5) calc(var(--passo) * 2);
+  border: var(--sulco);
+  border-radius: 2px;
+  background: var(--petroleo);
+  color: var(--luz);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.campo input::placeholder { color: #5d7f8c; }
+.campo input:hover,
+.campo select:hover { border-color: #2a5a6d; }
+
+.origens__acao {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--passo) * 3);
+  margin-top: calc(var(--passo) * 3);
+}
+
+.origens__salvar {
+  padding: calc(var(--passo) * 1.5) calc(var(--passo) * 4);
+  border: 1px solid var(--fresa);
+  border-radius: 2px;
+  background: var(--bancada);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--luz);
+}
+
+.origens__salvar:hover:not(:disabled) { border-color: var(--latao); color: var(--latao); }
+.origens__salvar:disabled { opacity: 0.5; cursor: progress; }
+
+.origens__erro {
+  flex: 1 1 240px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ressalva);
+}
+
 /* ----------------------------------------------------------------- rodapé */
 
 .rodape {
@@ -1114,9 +1691,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 @media (prefers-reduced-motion: no-preference) {
   .consulta__acao,
+  .aba,
+  .armado__ir,
   .atalhos button,
   .ficha-modelo,
   .ficha,
+  .aquisicao__acao,
+  .proposta,
+  .proposta__add,
+  .proposta__no,
+  .origem__tirar,
+  .origens__salvar,
   .cite { transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
 
   .pulso { animation: respira 1.4s ease-in-out infinite; }
@@ -1136,8 +1721,25 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (max-width: 620px) {
   .topo { position: static; }
   .topo__interno,
+  .barra__interno,
   .bancada,
   .rodape p { padding-left: calc(var(--passo) * 4); padding-right: calc(var(--passo) * 4); }
+
+  /* As abas em fila com rolagem horizontal própria: quebradas em duas linhas,
+     o menu ocuparia mais tela que o conteúdo da área escolhida. A rolagem é do
+     menu, não da página — o corpo continua sem transbordo. */
+  .barra__interno { gap: calc(var(--passo) * 3); }
+  .abas { flex-basis: 100%; }
+  .abas__interno {
+    flex-wrap: nowrap;
+    gap: calc(var(--passo) * 4);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .abas__interno::-webkit-scrollbar { display: none; }
+  .aba { flex: none; }
+  .aba__nota { display: none; }
+  .vista__resumo { margin-left: 0; flex-basis: 100%; }
   .medidores { gap: calc(var(--passo) * 5); }
   .consulta__rotulo { font-size: 19px; }
   .consulta__linha { flex-direction: column; }
@@ -1152,8 +1754,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   /* O índice de técnicas em coluna estreita: o nome ganha a linha inteira e a
      contagem desce para junto do ID. Mantido lado a lado, o nome truncaria em
      três ou quatro caracteres e a linha viraria só um ID com um número. */
-  .catalogo__abrir-resumo { margin-left: 0; flex-basis: 100%; }
-  .catalogo__lista { max-height: 60vh; }
   .tecnica__cabeca,
   .tecnica__sub { flex-wrap: wrap; }
   .tecnica__sub { padding-left: calc(var(--passo) * 4); }
@@ -1161,4 +1761,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .tecnica__nome { white-space: normal; }
   .tecnica__conta { min-width: 0; margin-left: auto; }
   .tecnica__diretas { min-width: 0; }
+
+  /* Ampliar o acervo em coluna estreita: o formulário empilha e os botões de
+     decisão ganham a linha inteira — lado a lado com 44 px de altura eles
+     ficariam menores que o alvo de toque. */
+  .aquisicao__linha { flex-direction: column; }
+  .aquisicao__acao { width: 100%; }
+  .relatorio__linha { gap: calc(var(--passo) * 4); }
+  .proposta__topo { flex-wrap: wrap; }
+  .proposta__acao > button { flex: 1 1 100%; }
+  .origem__tirar { margin-left: 0; }
+  /* Três colunas de 180 px não cabem em 390: os campos empilham. */
+  .origens__campos { grid-template-columns: 1fr; }
 }

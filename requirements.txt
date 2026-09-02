@@ -19,5 +19,10 @@ anthropic==0.40.0
 openai==1.57.0
 voyageai==0.3.2
 
+# --- Descoberta de novas regras (src/discovery/) ---
+# Ja vinha como dependencia transitiva dos SDKs de provedor; declarada aqui
+# porque src/discovery/github.py a importa diretamente.
+httpx==0.28.1
+
 # --- Dev / testes ---
 pytest==8.3.4

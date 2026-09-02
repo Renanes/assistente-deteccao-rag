@@ -262,6 +262,118 @@ window.addEventListener("resize", () => {
   redesenho = setTimeout(() => desenharMapa(1), 120);
 });
 
+/* --------------------------------------------------------------- vistas
+
+   Quatro áreas, um menu no cabeçalho. A troca é de vista, não de documento:
+   nada é rebuscado no servidor ao mudar de aba, e o estado de cada área
+   (filtros armados, propostas pendentes, resposta na tela) sobrevive à
+   troca — voltar para a pergunta não custa refazer a consulta.
+
+   Duas decisões de comportamento:
+
+   1. **O endereço acompanha a vista** (`#tecnicas`). Recarregar a página cai
+      na mesma área, e o link pode ser mandado para alguém. `replaceState` em
+      vez de atribuir `location.hash` porque a segunda forma empilha entrada
+      no histórico a cada clique — o botão "voltar" do navegador viraria um
+      desfazer de abas, que não é o que ninguém espera dele.
+
+   2. **O que acontece numa vista aparece nas outras.** Armar um filtro em
+      Técnicas age no campo de pergunta, que está noutra área; sem um selo na
+      aba e um aviso com o caminho de volta, o clique não teria consequência
+      visível. É o custo de separar as áreas, e é ele que precisa ser pago
+      aqui. */
+
+const abas = el("abas");
+const armedNotice = el("armedNotice");
+const armedText = el("armedText");
+
+const VISTAS = {
+  consultar: "vistaConsultar",
+  tecnicas: "vistaTecnicas",
+  ampliar: "vistaAmpliar",
+  repositorios: "vistaRepositorios",
+};
+
+let vistaAtual = "consultar";
+
+function mostrarVista(nome, { foco = false } = {}) {
+  const alvo = VISTAS[nome] ? nome : "consultar";
+  vistaAtual = alvo;
+
+  for (const [chave, id] of Object.entries(VISTAS)) {
+    el(id).hidden = chave !== alvo;
+  }
+
+  for (const aba of abas.querySelectorAll(".aba")) {
+    const ativa = aba.dataset.vista === alvo;
+    aba.classList.toggle("is-on", ativa);
+    aba.setAttribute("aria-selected", String(ativa));
+    // Roving tabindex: o Tab entra e sai do menu por um ponto só, e as setas
+    // percorrem as abas. É o padrão de tablist, e sem ele o teclado precisa
+    // de três Tabs para atravessar o cabeçalho.
+    aba.tabIndex = ativa ? 0 : -1;
+    if (ativa && foco) aba.focus();
+  }
+
+  if (location.hash.slice(1) !== alvo) {
+    history.replaceState(null, "", `#${alvo}`);
+  }
+
+  // O canvas não tem largura enquanto a vista está oculta, e `desenharMapa`
+  // desiste nesse caso. Redesenhar ao voltar é o que faz o mapa existir mesmo
+  // quando a página abriu direto em outra área (`#ampliar`, por exemplo).
+  if (alvo === "consultar") desenharMapa(1);
+}
+
+abas.addEventListener("keydown", (event) => {
+  const passo = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+  const nomes = Object.keys(VISTAS);
+  let destino = null;
+
+  if (passo !== undefined) {
+    destino = nomes[(nomes.indexOf(vistaAtual) + passo + nomes.length) % nomes.length];
+  } else if (event.key === "Home") {
+    destino = nomes[0];
+  } else if (event.key === "End") {
+    destino = nomes[nomes.length - 1];
+  }
+
+  if (destino) {
+    event.preventDefault();
+    mostrarVista(destino, { foco: true });
+  }
+});
+
+/* Qualquer `[data-vista]` leva à área correspondente — as abas e também o
+   "Ir para a pergunta" que fecha o ciclo do filtro armado. */
+document.addEventListener("click", (event) => {
+  const gatilho = event.target.closest("[data-vista]");
+  if (gatilho) mostrarVista(gatilho.dataset.vista);
+});
+
+window.addEventListener("hashchange", () => mostrarVista(location.hash.slice(1)));
+
+/* Um selo na aba: o número que a área tem para você agora. Escondido quando é
+   zero — um "0" permanente é ruído, não informação. */
+function marcarAba(id, texto) {
+  const selo = el(id);
+  selo.textContent = texto || "";
+  selo.hidden = !texto;
+}
+
+/* O aviso dentro de Técnicas, com o caminho de volta. Sem ele, clicar numa
+   técnica aqui não teria efeito visível: o filtro age no campo de pergunta,
+   que está em outra vista. */
+function renderArmado() {
+  const quantos = contaFiltros();
+  armedNotice.hidden = quantos === 0;
+  armedText.textContent =
+    quantos === 1
+      ? "1 filtro armado. Ele restringe a próxima pergunta."
+      : `${quantos} filtros armados. Eles restringem a próxima pergunta.`;
+  marcarAba("abaConsultarSelo", quantos ? `${quantos} filtro${quantos > 1 ? "s" : ""}` : "");
+}
+
 /* --------------------------------------------------- seletor de modelo */
 
 /* A escolha do modelo é de quem usa, não do `.env`: rodar a demonstração
@@ -632,7 +744,6 @@ keyList.addEventListener("click", (event) => {
       é justamente por isso que a contagem vem do servidor, da mesma função que
       monta o WHERE. */
 
-const catalogo = el("catalogo");
 const catalogList = el("catalogList");
 const catalogSearch = el("catalogSearch");
 const catalogSummary = el("catalogSummary");
@@ -653,6 +764,7 @@ function contaFiltros() {
 }
 
 function renderChips() {
+  renderArmado();
   activeFilters.hidden = contaFiltros() === 0;
   activeFilterList.innerHTML = "";
 
@@ -739,6 +851,9 @@ function renderCatalogo(data) {
     `${emPortugues(data.distinct_techniques)} técnicas · ` +
     `${emPortugues(data.families.length)} famílias · ` +
     `${emPortugues(data.untagged_count)} regras sem técnica`;
+  // A mesma contagem na aba: quem está noutra área precisa saber o tamanho do
+  // que há aqui sem vir olhar.
+  el("abaTecnicasNota").textContent = `${emPortugues(data.families.length)} famílias ATT&CK`;
 
   const pendencias = [];
   if (data.unknown_ids.length) {
@@ -1007,6 +1122,358 @@ function render(data) {
   acenderRegras(data.rules);
 }
 
+/* ------------------------------------------- ampliar o acervo (descoberta)
+
+   Duas propriedades desta tela, que são as mesmas do backend:
+
+   1. **A busca não decide.** O botão de procurar nunca escreve no acervo. As
+      propostas ficam na tela com dois caminhos explícitos, e é o clique que
+      indexa. Nada aqui aprova em lote.
+
+   2. **A procedência viaja com a proposta.** Repositório, caminho e link vêm
+      em cada ficha. Aprovar uma regra sem ver de onde ela saiu seria confiar
+      num texto que apareceu na tela — que é exatamente o que este projeto
+      inteiro existe para não fazer. */
+
+const discoveryForm = el("discoveryForm");
+const discoveryPrompt = el("discoveryPrompt");
+const discoverySubmit = el("discoverySubmit");
+const discoverySummary = el("discoverySummary");
+const discoveryReadout = el("discoveryReadout");
+const discoveryWarnings = el("discoveryWarnings");
+const discoveryList = el("discoveryList");
+const discoveryEmpty = el("discoveryEmpty");
+
+/* Os repositórios confiáveis são uma área própria do menu, e não mais um
+   painel dentro da busca: eles são o limite do que a descoberta enxerga, e
+   quem avalia a ferramenta precisa poder ver e mudar a lista sem antes fazer
+   uma busca. O código abaixo é o mesmo — só o lugar mudou. */
+const sourceList = el("sourceList");
+const sourceForm = el("sourceForm");
+const sourceFormat = el("sourceFormat");
+const sourceError = el("sourceError");
+const sourcesCount = el("sourcesCount");
+const sourcesTokenNote = el("sourcesTokenNote");
+
+/* Como cada formato aparece na tela. O `value` vem do servidor
+   (`/api/sources`); só o rótulo legível mora aqui, porque nome de produto não
+   é dado de configuração. Formato desconhecido cai no próprio identificador,
+   em vez de sumir do seletor. */
+const ROTULO_FORMATO = {
+  sigma: "Sigma (YAML)",
+  splunk_escu: "Splunk ESCU (YAML)",
+  yara_l: "YARA-L (.yaral)",
+};
+
+let origens = [];
+
+function formatoEscolhido() {
+  const marcado = sourceFormat.querySelector("input:checked");
+  return marcado ? marcado.value : "";
+}
+
+/* Quantas propostas ainda esperam decisão — é isso que a aba precisa dizer,
+   não quantas foram encontradas. Uma lista inteira já decidida não deve
+   continuar chamando ninguém de volta. */
+function atualizarSeloAmpliar() {
+  const pendentes = discoveryList.querySelectorAll(".proposta:not(.is-decidida)").length;
+  marcarAba("abaAmpliarSelo", pendentes ? `${pendentes} por decidir` : "");
+}
+
+function renderOrigens(data) {
+  origens = data.sources || [];
+  sourcesCount.textContent = `${origens.length} cadastrado${origens.length === 1 ? "" : "s"}`;
+  el("abaRepositoriosNota").textContent =
+    `${origens.length} confiáve${origens.length === 1 ? "l" : "is"}`;
+
+  sourcesTokenNote.textContent = data.has_github_token
+    ? "O servidor tem token do GitHub: a busca também procura dentro do conteúdo das regras."
+    : "Sem token do GitHub no servidor, a busca lê a árvore de arquivos de cada repositório e pontua pelo nome. Configure GITHUB_TOKEN no .env para procurar também dentro do conteúdo.";
+
+  sourceList.innerHTML = "";
+  for (const source of origens) {
+    const li = document.createElement("li");
+    li.className = "origem";
+    const formato = ROTULO_FORMATO[source.rule_format] || source.rule_format;
+    const pastas = source.path_prefixes.length
+      ? source.path_prefixes.join(", ")
+      : "repositório inteiro";
+    li.innerHTML = `
+      <span class="origem__slug">${escapeHtml(source.slug)}@${escapeHtml(source.ref)}</span>
+      <span class="origem__formato">${escapeHtml(formato)}</span>
+      <span class="origem__semente">${escapeHtml(pastas)}${source.is_seed ? " · pré-cadastrado" : ""}</span>
+      <button type="button" class="origem__tirar" data-drop-source="${escapeHtml(source.slug)}">tirar</button>
+      ${source.note ? `<p class="origem__nota">${escapeHtml(source.note)}</p>` : ""}`;
+    sourceList.appendChild(li);
+  }
+
+  // Rádios, não um menu suspenso: escolher o formato errado não produz erro,
+  // produz uma origem que nunca devolve nada. As opções ficam à vista.
+  const anterior = formatoEscolhido();
+  sourceFormat.innerHTML = "";
+  (data.formats || []).forEach((formato, indice) => {
+    const marcado = anterior ? formato === anterior : indice === 0;
+    const label = document.createElement("label");
+    label.className = "formato" + (marcado ? " is-on" : "");
+    label.innerHTML = `
+      <input type="radio" name="rule_format" value="${escapeHtml(formato)}" ${marcado ? "checked" : ""}>
+      <span>${escapeHtml(ROTULO_FORMATO[formato] || formato)}</span>`;
+    sourceFormat.appendChild(label);
+  });
+
+}
+
+sourceList.addEventListener("click", async (event) => {
+  const botao = event.target.closest("[data-drop-source]");
+  if (!botao) return;
+
+  const slug = botao.dataset.dropSource;
+  botao.disabled = true;
+  sourceError.hidden = true;
+  try {
+    const response = await fetch(`/api/sources/${slug}`, { method: "DELETE" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `a API respondeu ${response.status}`);
+    }
+    renderOrigens(await response.json());
+  } catch (error) {
+    botao.disabled = false;
+    sourceError.textContent = `${slug} continua cadastrado: ${error.message}.`;
+    sourceError.hidden = false;
+  }
+});
+
+sourceFormat.addEventListener("change", () => {
+  for (const label of sourceFormat.querySelectorAll(".formato")) {
+    label.classList.toggle("is-on", Boolean(label.querySelector("input:checked")));
+  }
+});
+
+sourceForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const submit = el("sourceSubmit");
+  const slug = el("sourceSlug").value.trim();
+  if (!slug) return;
+
+  sourceError.hidden = true;
+  submit.disabled = true;
+  submit.textContent = "Conferindo…";
+
+  try {
+    const response = await fetch("/api/sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        rule_format: formatoEscolhido(),
+        ref: el("sourceRef").value.trim() || null,
+        // Uma caixa só, separada por vírgula: pedir uma linha por pasta seria
+        // um formulário maior para o caso raro de haver mais de uma.
+        path_prefixes: el("sourcePaths")
+          .value.split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `a API respondeu ${response.status}`);
+    }
+    renderOrigens(await response.json());
+    sourceForm.reset();
+    sourceFormat.dispatchEvent(new Event("change"));
+  } catch (error) {
+    sourceError.textContent = error.message;
+    sourceError.hidden = false;
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "Cadastrar";
+  }
+});
+
+function renderRelatorio(data) {
+  discoveryReadout.hidden = false;
+  el("discoveryTerms").textContent = data.terms.length
+    ? data.terms.join(" · ")
+    : "nenhum termo aproveitável";
+  el("discoverySources").textContent = `${data.sources_searched.length}`;
+  el("discoveryFiles").textContent = `${data.files_read}`;
+  el("discoveryKnown").textContent = `${data.already_indexed}`;
+
+  const tecnicas = data.techniques.length ? ` · filtro por ${data.techniques.join(", ")}` : "";
+  el("discoveryPlanSource").textContent = data.expanded_by_model
+    ? `Termos traduzidos por ${data.model}${tecnicas} · ${data.rules_parsed} regras lidas em ${data.elapsed_ms} ms`
+    : `Termos extraídos do próprio pedido, sem modelo${tecnicas} · ${data.rules_parsed} regras lidas em ${data.elapsed_ms} ms`;
+
+  discoveryWarnings.hidden = data.warnings.length === 0;
+  discoveryWarnings.innerHTML = data.warnings
+    .map((aviso) => `<p>${escapeHtml(aviso)}</p>`)
+    .join("");
+}
+
+function renderProposta(proposal) {
+  const li = document.createElement("li");
+  li.className = "proposta" + (proposal.status === "pending" ? "" : " is-decidida");
+  li.id = `proposta-${proposal.rule_uid}`;
+
+  const etiquetas = [
+    ...proposal.mitre_techniques.map(
+      (id) => `<span class="etiqueta etiqueta--attack">${escapeHtml(id)}</span>`
+    ),
+    ...proposal.platforms.map((p) => `<span class="etiqueta">${escapeHtml(p)}</span>`),
+    proposal.severity ? `<span class="etiqueta">${escapeHtml(proposal.severity)}</span>` : "",
+  ].join("");
+
+  // Por que esta regra subiu. Sem isso, a nota é um número sem defesa.
+  const razoes = [];
+  if (proposal.matched_techniques.length) {
+    razoes.push(`técnica ${proposal.matched_techniques.join(", ")}`);
+  }
+  if (proposal.matched_terms.length) razoes.push(proposal.matched_terms.join(", "));
+  if (proposal.found_by.length) razoes.push(`achada pela ${proposal.found_by.join(" e ")}`);
+
+  const jaDecidida = proposal.status !== "pending";
+  const estado =
+    proposal.status === "approved"
+      ? '<span class="proposta__estado proposta__estado--ok">no acervo</span>'
+      : proposal.status === "rejected"
+        ? '<span class="proposta__estado proposta__estado--no">recusada antes</span>'
+        : "";
+
+  li.innerHTML = `
+    <div class="proposta__topo">
+      <h3 class="proposta__titulo">${escapeHtml(proposal.title)}</h3>
+      <span class="proposta__nota" title="Nota de relevância: ${escapeHtml(razoes.join(" · ") || "sem casamento")}">${proposal.score.toFixed(1)}</span>
+    </div>
+    ${proposal.description ? `<p class="proposta__descricao">${escapeHtml(proposal.description)}</p>` : ""}
+    <div class="etiquetas">${etiquetas}</div>
+    <p class="proposta__origem">
+      <span class="proposta__repo">${escapeHtml(proposal.source_slug)}</span>
+      <a href="${escapeHtml(proposal.source_url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(proposal.source_path)}</a>
+    </p>
+    ${razoes.length ? `<p class="proposta__origem">casou: ${escapeHtml(razoes.join(" · "))}</p>` : ""}
+    <details class="proposta__logica">
+      <summary>ver a lógica de detecção (${escapeHtml(proposal.query_language)})</summary>
+      <pre><code>${escapeHtml(proposal.query)}</code></pre>
+      ${proposal.query_truncated ? '<p class="proposta__corte">Lógica cortada no mesmo limite que o acervo aplica — a regra completa está no arquivo de origem.</p>' : ""}
+    </details>
+    <div class="proposta__acao">
+      <button type="button" class="proposta__add" data-approve="${escapeHtml(proposal.rule_uid)}" ${jaDecidida ? "disabled" : ""}>
+        Adicionar ao acervo
+      </button>
+      <button type="button" class="proposta__no" data-reject="${escapeHtml(proposal.rule_uid)}" ${jaDecidida ? "disabled" : ""}>
+        Recusar
+      </button>
+      ${estado}
+    </div>`;
+  return li;
+}
+
+function renderPropostas(data) {
+  discoveryList.innerHTML = "";
+  data.proposals.forEach((proposal) => discoveryList.appendChild(renderProposta(proposal)));
+
+  atualizarSeloAmpliar();
+
+  const total = data.proposals.length;
+  discoverySummary.textContent = total
+    ? `${total} regra${total === 1 ? "" : "s"} para revisar`
+    : "nenhuma regra nova nesta busca";
+
+  if (total) {
+    discoveryEmpty.hidden = true;
+    return;
+  }
+  // Vazio não é erro, e cada motivo de vazio pede uma ação diferente.
+  discoveryEmpty.hidden = false;
+  discoveryEmpty.textContent = data.already_indexed
+    ? `Nenhuma regra nova: as ${data.already_indexed} encontradas já estão no acervo. Tente um comportamento mais específico, ou cadastre outra origem.`
+    : "Nenhuma regra casou com esse pedido nas origens cadastradas. Descreva o comportamento a detectar — a ferramenta, o binário, o evento — em vez de fazer uma pergunta.";
+}
+
+async function procurarRegras(prompt) {
+  discoverySubmit.disabled = true;
+  discoverySubmit.textContent = "Procurando…";
+  discoveryEmpty.hidden = true;
+  try {
+    const response = await fetch("/api/discovery/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...cabecalhosDeChave() },
+      body: JSON.stringify({ prompt, limit: 12 }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `a API respondeu ${response.status}`);
+    }
+    const data = await response.json();
+    renderRelatorio(data);
+    renderPropostas(data);
+  } catch (error) {
+    discoveryList.innerHTML = "";
+    discoveryReadout.hidden = true;
+    discoveryEmpty.hidden = false;
+    discoveryEmpty.textContent = `A busca não completou: ${error.message}.`;
+  } finally {
+    discoverySubmit.disabled = false;
+    discoverySubmit.textContent = "Procurar";
+  }
+}
+
+discoveryForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const prompt = discoveryPrompt.value.trim();
+  if (prompt) procurarRegras(prompt);
+});
+
+discoveryList.addEventListener("click", async (event) => {
+  const aprovar = event.target.closest("[data-approve]");
+  const recusar = event.target.closest("[data-reject]");
+  if (!aprovar && !recusar) return;
+
+  const botao = aprovar || recusar;
+  const ruleUid = botao.dataset.approve || botao.dataset.reject;
+  const ficha = el(`proposta-${ruleUid}`);
+  const acoes = ficha.querySelectorAll("button");
+  acoes.forEach((item) => (item.disabled = true));
+  botao.textContent = aprovar ? "Indexando…" : "Recusando…";
+
+  try {
+    const response = await fetch("/api/discovery/decide", {
+      method: "POST",
+      // A chave de embedding acompanha a aprovação: é ela que transforma a
+      // regra em vetor. Recusar não usa chave nenhuma, mas o cabeçalho é o
+      // mesmo caminho e não custa nada.
+      headers: { "Content-Type": "application/json", ...cabecalhosDeChave() },
+      body: JSON.stringify({ rule_uid: ruleUid, decision: aprovar ? "approve" : "reject" }),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.detail || `a API respondeu ${response.status}`);
+    }
+    const data = await response.json();
+
+    ficha.classList.add("is-decidida");
+    atualizarSeloAmpliar();
+    botao.textContent = aprovar ? "Adicionar ao acervo" : "Recusar";
+    const estado = document.createElement("span");
+    estado.className = `proposta__estado proposta__estado--${aprovar ? "ok" : "no"}`;
+    estado.textContent = data.message;
+    ficha.querySelector(".proposta__acao").appendChild(estado);
+
+    // O acervo cresceu: o medidor e o mapa precisam dizer o número novo, senão
+    // a regra aprovada some da tela sem aparecer em lugar nenhum.
+    if (aprovar && data.indexed_chunks) atualizarAcervo();
+  } catch (error) {
+    acoes.forEach((item) => (item.disabled = false));
+    botao.textContent = aprovar ? "Adicionar ao acervo" : "Recusar";
+    const falha = document.createElement("span");
+    falha.className = "proposta__estado proposta__estado--erro";
+    falha.textContent = error.message;
+    ficha.querySelector(".proposta__acao").appendChild(falha);
+  }
+});
+
 /* ------------------------------------------------------------ requisição */
 
 function setState(name, detail) {
@@ -1065,6 +1532,11 @@ el("examples").addEventListener("click", (event) => {
 
 /* -------------------------------------------------------------- arranque */
 
+/* A vista vem do endereço: recarregar cai na mesma área, e o link leva alguém
+   direto a ela. Endereço vazio ou desconhecido abre a pergunta, que é o que a
+   ferramenta faz. */
+mostrarVista(location.hash.slice(1));
+
 fetch("/api/models")
   .then((response) => (response.ok ? response.json() : Promise.reject(response)))
   .then(buildModelPicker)
@@ -1098,18 +1570,51 @@ fetch("/api/techniques")
       "O índice de técnicas não respondeu. Verifique se o Postgres está no ar e o corpus indexado.";
   });
 
-fetch("/api/health")
+/* O tamanho do acervo é lido no arranque e relido sempre que uma regra nova é
+   aprovada — o medidor e o mapa precisam mostrar o número que o banco tem, não
+   o que ele tinha quando a página abriu. */
+function atualizarAcervo() {
+  return fetch("/api/health")
+    .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+    .then((health) => {
+      el("statChunks").textContent = `${emPortugues(health.indexed_chunks)} regras`;
+      el("statEmbedding").textContent = health.embedding_model;
+      if (!generationStatOwned) {
+        el("statLlm").textContent = `${health.llm_provider}/${health.llm_model}`;
+      }
+      prepararMapa(health.indexed_chunks);
+    })
+    .catch(() => {
+      el("statChunks").textContent = "indisponível";
+      corpusLegend.textContent =
+        "O acervo não respondeu. Verifique se o Postgres está no ar e o corpus indexado.";
+    });
+}
+
+atualizarAcervo();
+fetch("/api/sources")
   .then((response) => (response.ok ? response.json() : Promise.reject(response)))
-  .then((health) => {
-    el("statChunks").textContent = `${emPortugues(health.indexed_chunks)} regras`;
-    el("statEmbedding").textContent = health.embedding_model;
-    if (!generationStatOwned) {
-      el("statLlm").textContent = `${health.llm_provider}/${health.llm_model}`;
-    }
-    prepararMapa(health.indexed_chunks);
+  .then(renderOrigens)
+  .catch(() => {
+    sourcesCount.textContent = "indisponível";
+    sourcesTokenNote.textContent =
+      "A lista de repositórios confiáveis não respondeu. Verifique se o Postgres está no ar.";
+  });
+
+// As propostas pendentes de sessões anteriores voltam sozinhas: uma decisão
+// adiada não deveria exigir refazer a busca (e gastar cota do GitHub) para ser
+// reencontrada.
+fetch("/api/discovery/proposals?status=pending")
+  .then((response) => (response.ok ? response.json() : Promise.reject(response)))
+  .then((data) => {
+    if (!data.proposals.length) return;
+    data.proposals.forEach((proposal) =>
+      discoveryList.appendChild(renderProposta(proposal))
+    );
+    discoverySummary.textContent = `${data.pending} regra${data.pending === 1 ? "" : "s"} esperando decisão`;
+    atualizarSeloAmpliar();
   })
   .catch(() => {
-    el("statChunks").textContent = "indisponível";
-    corpusLegend.textContent =
-      "O acervo não respondeu. Verifique se o Postgres está no ar e o corpus indexado.";
+    /* Sem pendências recuperadas a tela abre vazia, que é o estado normal. */
   });
+

@@ -162,6 +162,88 @@ def test_model_options_are_visible_without_interaction(html: str, js: str) -> No
     assert 'type="radio"' in js, "as fichas de modelo deixaram de ser rádios"
 
 
+# --------------------------------------------------------------------------
+# Navegação em vistas
+#
+# A página deixou de ser uma pilha e virou áreas com um menu no cabeçalho.
+# O risco de uma navegação feita em JS sobre HTML estático é o mesmo de sempre
+# aqui: um `id` renomeado num lado e não no outro não quebra nada em tempo de
+# importação — quebra em silêncio, no navegador de quem for avaliar.
+# --------------------------------------------------------------------------
+
+
+def test_cada_aba_aponta_para_uma_vista_que_existe(html: str) -> None:
+    """`data-vista` é o contrato entre o menu e as seções; ele precisa fechar."""
+    vistas = set(re.findall(r'data-vista="([^"]+)"', html))
+    ids = set(re.findall(r'id="([^"]+)"', html))
+
+    assert vistas, "nenhuma aba encontrada"
+    for vista in vistas:
+        esperado = f"vista{vista.capitalize()}"
+        assert esperado in ids, f"a aba '{vista}' aponta para uma vista inexistente"
+
+
+def test_o_menu_e_a_configuracao_dividem_a_mesma_faixa(html: str) -> None:
+    """Pedido de quem usa: o menu ao lado da Configuração, não numa linha solta."""
+    faixa = html.split('<div class="barra__interno">')[1].split("</header>")[0]
+    assert 'id="abas"' in faixa
+    assert 'id="configPanel"' in faixa
+
+
+def test_abas_e_paineis_se_referenciam_nos_dois_sentidos(html: str) -> None:
+    """`aria-controls` e `aria-labelledby` fechando é o que dá a navegação a quem
+    usa leitor de tela — sem isso as abas são três botões sem relação com nada."""
+    ids = set(re.findall(r'id="([^"]+)"', html))
+
+    for controlado in re.findall(r'aria-controls="([^"]+)"', html):
+        assert controlado in ids, f"aria-controls aponta para id inexistente: {controlado}"
+    for rotulo in re.findall(r'aria-labelledby="([^"]+)"', html):
+        assert rotulo in ids, f"aria-labelledby aponta para id inexistente: {rotulo}"
+
+
+def test_so_uma_vista_abre_visivel(html: str) -> None:
+    """Duas vistas visíveis é a pilha de volta; nenhuma é uma página em branco.
+
+    A contagem é comparada com a de abas em vez de ser um número escrito aqui:
+    o que precisa valer é que cada aba tenha uma vista, e acrescentar uma área
+    não deve exigir editar este teste — só não deve deixar sobrar aba sem vista.
+    """
+    vistas = re.findall(r'<section class="vista"[^>]*>', html)
+    abas = re.findall(r'role="tab"', html)
+    assert len(vistas) == len(abas)
+
+    visiveis = [vista for vista in vistas if "hidden" not in vista]
+    assert len(visiveis) == 1 and "vistaConsultar" in visiveis[0]
+
+
+def test_o_teclado_percorre_as_abas(js: str, html: str) -> None:
+    """Roving tabindex e setas: sem isso o Tab atravessa o cabeçalho inteiro."""
+    assert 'tabindex="-1"' in html, "as abas inativas precisam sair da ordem do Tab"
+    assert "ArrowLeft" in js and "ArrowRight" in js
+
+
+def test_o_mapa_e_redesenhado_ao_voltar_para_a_pergunta(js: str) -> None:
+    """Regressão: canvas oculto tem largura zero, e `desenharMapa` desiste nesse
+    caso. Sem redesenhar na troca, abrir a página em `#ampliar` e voltar deixava
+    o elemento de assinatura em branco."""
+    corpo = js.split("function mostrarVista")[1]
+    trecho = corpo[: corpo.index("\nabas.addEventListener")]
+    assert "desenharMapa" in trecho
+
+
+def test_a_vista_vem_do_endereco(js: str) -> None:
+    """Recarregar cai na mesma área, e o link leva alguém direto a ela."""
+    assert "location.hash" in js
+    assert "replaceState" in js, "atribuir hash empilharia histórico a cada clique"
+
+
+def test_o_filtro_armado_aparece_na_aba_da_pergunta(js: str) -> None:
+    """O filtro é armado numa vista e age noutra: sem selo e sem aviso, o clique
+    não teria consequência visível."""
+    assert "abaConsultarSelo" in js
+    assert "armedNotice" in js and "armedText" in js
+
+
 def test_palette_is_named_and_sized_as_planned(css: str) -> None:
     """Trava o plano de design: 6 cores nomeadas, não uma paleta improvisada."""
     for token in ("--petroleo", "--bancada", "--fresa", "--luz", "--vapor", "--latao"):

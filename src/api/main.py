@@ -33,6 +33,11 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from ..chunking.chunk import truncate_query
+from ..discovery import github as discovery_github
+from ..discovery import proposals as discovery_proposals
+from ..discovery import sources as discovery_sources
+from ..discovery.search import Proposal, discover
 from ..embeddings import store
 from ..providers import (
     CATALOG,
@@ -57,15 +62,24 @@ from ..rag.pipeline import RagPipeline
 from ..retrieval.search import HybridRetriever, SearchFilters
 from ..retrieval.techniques import UNTAGGED_LABEL, load_corpus_techniques
 from .schemas import (
+    AddSourceRequest,
     AskRequest,
     AskResponse,
+    DecideRequest,
+    DecideResponse,
+    DiscoverRequest,
+    DiscoverResponse,
     GroundingOut,
     HealthResponse,
     ModelOut,
     ModelsResponse,
+    ProposalOut,
+    ProposalsResponse,
     ProviderStatusOut,
     RuleOut,
     SettingsResponse,
+    SourcesResponse,
+    TrustedSourceOut,
     TechniqueFamilyOut,
     TechniqueOut,
     TechniquesResponse,
@@ -426,6 +440,338 @@ def ask(payload: AskRequest, http_request: Request) -> AskResponse:
         llm_model=result.llm_model,
         embedding_model=embedding.model,
         elapsed_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Descoberta de novos casos de uso
+#
+# A propriedade que estes endpoints preservam é uma só: **a busca não decide**.
+# `/api/discovery/search` lê repositórios confiáveis e devolve propostas;
+# `/api/discovery/decide` é o único caminho que escreve no acervo, e ele exige
+# um `rule_uid` que já esteja registrado como proposta. Não há endpoint que
+# encontre e indexe no mesmo passo — a separação é o desenho, não uma etapa
+# que faltou juntar.
+# ---------------------------------------------------------------------------
+
+
+def _embedding_for(keys: dict[str, str]) -> EmbeddingProvider:
+    """O provedor de embedding desta requisição, honrando a chave do visitante.
+
+    Separado de `_providers_for` porque aprovar uma regra não precisa de modelo
+    de geração: exigir chave de LLM para indexar seria barrar quem tem tudo o
+    que a operação realmente usa.
+    """
+    assert runtime.settings is not None
+    if not keys:
+        if runtime.embedding is None:
+            raise ProviderError(
+                "Falta a chave que gera os vetores. Sem ela a regra aprovada não pode "
+                "ser indexada. Informe uma chave de OpenAI ou Voyage em Configuração."
+            )
+        return runtime.embedding
+    return get_embedding_provider(apply_keys(runtime.settings, keys))
+
+
+def _llm_or_none(keys: dict[str, str], model: str | None = None) -> LLMProvider | None:
+    """O modelo que traduz o pedido em termos de busca, se houver um disponível.
+
+    `None` não é falha: a descoberta cai na extração determinística de termos e
+    continua funcionando. Ver `discovery/search.plan_search`.
+    """
+    assert runtime.settings is not None
+    try:
+        if not keys:
+            return runtime.llm_for(model)
+        return get_llm_provider(apply_keys(runtime.settings, keys), model=model)
+    except ProviderError:
+        return None
+
+
+def _source_out(source: discovery_sources.TrustedSource) -> TrustedSourceOut:
+    return TrustedSourceOut(
+        slug=source.slug,
+        ref=source.ref,
+        label=source.label,
+        rule_format=source.rule_format.value,
+        path_prefixes=list(source.path_prefixes),
+        note=source.note,
+        enabled=source.enabled,
+        is_seed=source.is_seed,
+    )
+
+
+def _sources_payload(conn) -> SourcesResponse:  # type: ignore[no-untyped-def]
+    assert runtime.settings is not None
+    return SourcesResponse(
+        sources=[_source_out(source) for source in discovery_sources.load_sources(conn)],
+        formats=[item.value for item in discovery_sources.RuleFormat],
+        has_github_token=bool(runtime.settings.github_token),
+    )
+
+
+def _proposal_out(proposal: Proposal) -> ProposalOut:
+    rule = proposal.rule
+    # A lógica mostrada na ficha passa pelo mesmo teto que a indexação aplica
+    # (`chunking.truncate_query`). Não é só economia de banda: a cauda do corpus
+    # é extrema — há regra Sigma com 250 KB de lista de hash — e uma proposta
+    # dessas travaria a página. Mostrar o que de fato entraria no acervo é
+    # também a informação mais honesta para quem decide.
+    query, query_truncated = truncate_query(rule.query)
+    return ProposalOut(
+        rule_uid=proposal.rule_uid,
+        status=proposal.status,
+        title=rule.title,
+        description=rule.description,
+        query=query,
+        query_truncated=query_truncated,
+        query_language=rule.query_language.value,
+        platforms=list(rule.platforms),
+        mitre_techniques=list(rule.mitre_techniques),
+        severity=rule.severity.value if rule.severity else None,
+        author=rule.author,
+        references=list(rule.references),
+        source_slug=proposal.source_slug,
+        source_label=proposal.source_label,
+        source_path=proposal.source_path,
+        source_url=proposal.source_url,
+        rule_source=rule.source.value,
+        score=proposal.score,
+        matched_terms=list(proposal.matched_terms),
+        matched_techniques=list(proposal.matched_techniques),
+        found_by=list(proposal.found_by),
+    )
+
+
+@app.get("/api/sources", response_model=SourcesResponse)
+def list_trusted_sources() -> SourcesResponse:
+    """Os repositórios em que a descoberta pode procurar. Nada além deles."""
+    try:
+        with _connect() as conn:
+            payload = _sources_payload(conn)
+            conn.commit()  # a primeira chamada semeia a tabela
+            return payload
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {error}") from error
+
+
+@app.post("/api/sources", response_model=SourcesResponse)
+def add_trusted_source(payload: AddSourceRequest) -> SourcesResponse:
+    """Cadastra um repositório confiável, conferindo antes que ele exista.
+
+    A conferência no GitHub é o que evita o pior resultado possível deste
+    formulário: um cadastro aceito com nome ou branch errado, que não falha
+    aqui e sim depois, como "a busca não acha nada nessa origem".
+    """
+    assert runtime.settings is not None
+
+    try:
+        rule_format = discovery_sources.RuleFormat(payload.rule_format)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{payload.rule_format}' não é um formato que os parsers leem. "
+                f"Use um destes: {', '.join(item.value for item in discovery_sources.RuleFormat)}."
+            ),
+        ) from error
+
+    try:
+        info = discovery_github.probe_repository(payload.slug, runtime.settings.github_token)
+    except discovery_github.RateLimitError as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
+    except discovery_github.DiscoveryError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        source = discovery_sources.TrustedSource(
+            slug=info["slug"],
+            ref=payload.ref or info["ref"],
+            label=payload.label or info["slug"].split("/")[-1],
+            rule_format=rule_format,
+            path_prefixes=payload.path_prefixes,
+            note=payload.note or info["description"],
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        with _connect() as conn:
+            discovery_sources.ensure_schema(conn)
+            discovery_sources.seed_if_empty(conn)
+            discovery_sources.upsert_source(conn, source)
+            conn.commit()
+            return _sources_payload(conn)
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {error}") from error
+
+
+@app.delete("/api/sources/{owner}/{repo}", response_model=SourcesResponse)
+def remove_trusted_source(owner: str, repo: str) -> SourcesResponse:
+    """Descadastra uma origem — inclusive uma das que vieram pré-cadastradas.
+
+    Sementes são um ponto de partida, não uma decisão imutável de quem escreveu
+    a ferramenta. Removida uma, ela não volta: a semeadura só roda com a tabela
+    inteiramente vazia.
+    """
+    try:
+        with _connect() as conn:
+            discovery_sources.ensure_schema(conn)
+            if not discovery_sources.remove_source(conn, f"{owner}/{repo}"):
+                raise HTTPException(
+                    status_code=404, detail=f"'{owner}/{repo}' não está cadastrado."
+                )
+            conn.commit()
+            return _sources_payload(conn)
+    except HTTPException:
+        raise
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {error}") from error
+
+
+@app.post("/api/discovery/search", response_model=DiscoverResponse)
+def discovery_search(payload: DiscoverRequest, http_request: Request) -> DiscoverResponse:
+    """Procura casos de uso novos nas origens confiáveis. **Não indexa nada.**"""
+    assert runtime.settings is not None
+
+    try:
+        keys = keys_from_headers(http_request.headers)
+    except InvalidKeyError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    started = time.perf_counter()
+    try:
+        with _connect() as conn:
+            catalog = [
+                source for source in discovery_sources.load_sources(conn) if source.enabled
+            ]
+            conn.commit()
+
+            if payload.sources:
+                wanted = {slug.strip().lower() for slug in payload.sources}
+                catalog = [source for source in catalog if source.key in wanted]
+
+            if not catalog:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Nenhuma origem confiável habilitada para buscar. Cadastre um "
+                        "repositório em Origens confiáveis antes de pesquisar."
+                    ),
+                )
+
+            known = discovery_proposals.indexed_uids(conn)
+            llm = _llm_or_none(keys)
+
+            with discovery_github.GitHubClient(
+                catalog, token=runtime.settings.github_token
+            ) as client:
+                result = discover(
+                    payload.prompt,
+                    catalog,
+                    client,
+                    known_uids=known,
+                    llm=llm,
+                    limit=payload.limit,
+                )
+
+            recorded = discovery_proposals.record_findings(conn, payload.prompt, result.proposals)
+    except HTTPException:
+        raise
+    except discovery_github.RateLimitError as error:
+        raise HTTPException(status_code=429, detail=str(error)) from error
+    except discovery_github.NotAllowedError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    except discovery_github.DiscoveryError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=redact(str(error))) from error
+
+    return DiscoverResponse(
+        prompt=payload.prompt,
+        proposals=[_proposal_out(proposal) for proposal in recorded],
+        terms=list(result.plan.terms),
+        techniques=list(result.plan.mitre_techniques),
+        expanded_by_model=result.plan.expanded_by_model,
+        model=result.plan.model,
+        sources_searched=result.sources_searched,
+        files_read=result.files_read,
+        rules_parsed=result.parsed,
+        already_indexed=result.already_indexed,
+        requests=result.requests,
+        rate_limit_remaining=result.rate_limit_remaining,
+        warnings=result.warnings,
+        elapsed_ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+@app.get("/api/discovery/proposals", response_model=ProposalsResponse)
+def discovery_proposals_list(status: str = "pending") -> ProposalsResponse:
+    """As propostas registradas, por estado. Sobrevive ao recarregar a página."""
+    if status not in ("pending", "approved", "rejected", "all"):
+        raise HTTPException(status_code=400, detail=f"estado desconhecido: '{status}'.")
+
+    try:
+        with _connect() as conn:
+            items = discovery_proposals.list_proposals(
+                conn, status=None if status == "all" else status
+            )
+            counts = discovery_proposals.count_by_status(conn)
+            conn.commit()
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"banco indisponível: {error}") from error
+
+    return ProposalsResponse(
+        proposals=[_proposal_out(proposal) for proposal in items],
+        pending=counts.pending,
+        approved=counts.approved,
+        rejected=counts.rejected,
+    )
+
+
+@app.post("/api/discovery/decide", response_model=DecideResponse)
+def discovery_decide(payload: DecideRequest, http_request: Request) -> DecideResponse:
+    """Aprova (indexa) ou recusa uma proposta. O único caminho de escrita."""
+    if payload.decision not in ("approve", "reject"):
+        raise HTTPException(
+            status_code=400, detail="decisão precisa ser 'approve' ou 'reject'."
+        )
+
+    try:
+        keys = keys_from_headers(http_request.headers)
+    except InvalidKeyError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    try:
+        with _connect() as conn:
+            if payload.decision == "reject":
+                proposal = discovery_proposals.reject(conn, payload.rule_uid)
+                return DecideResponse(
+                    rule_uid=proposal.rule_uid,
+                    status=proposal.status,
+                    title=proposal.rule.title,
+                    message="Recusada. Ela continua aparecendo em buscas, marcada como recusada.",
+                )
+
+            embedding = _embedding_for(keys)
+            proposal, written = discovery_proposals.approve(conn, payload.rule_uid, embedding)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ProviderError as error:
+        raise HTTPException(status_code=400, detail=redact(str(error))) from error
+    except Exception as error:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=redact(str(error))) from error
+
+    return DecideResponse(
+        rule_uid=proposal.rule_uid,
+        status=proposal.status,
+        title=proposal.rule.title,
+        indexed_chunks=written,
+        message=(
+            "Indexada no acervo. Já responde à busca."
+            if written
+            else "Já estava indexada — nada foi reescrito."
+        ),
     )
 
 
