@@ -32,6 +32,11 @@ def parse_escu_rule(path: Path, repo_root: Path) -> DetectionRule | None:
     `detections/` também guarda arquivos que não são detecções.
     """
     raw = path.read_text(encoding="utf-8", errors="replace")
+    return parse_escu_text(raw, path.relative_to(repo_root).as_posix())
+
+
+def parse_escu_text(raw: str, relative_path: str) -> DetectionRule | None:
+    """Mesma conversão, a partir do conteúdo em memória (ver `sigma.parse_sigma_text`)."""
     try:
         document: Any = yaml.safe_load(raw)
     except yaml.YAMLError:
@@ -46,7 +51,6 @@ def parse_escu_rule(path: Path, repo_root: Path) -> DetectionRule | None:
     if not name or not native_id or not search:
         return None
 
-    relative_path = path.relative_to(repo_root).as_posix()
     data_sources = as_str_list(document.get("data_source"))
     asset_type = str(document.get("asset_type") or "")
     mitre_ids = as_str_list(document.get("mitre_attack_id"))

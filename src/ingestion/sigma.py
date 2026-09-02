@@ -45,6 +45,18 @@ def parse_sigma_rule(path: Path, repo_root: Path) -> DetectionRule | None:
     como os arquivos de configuração e de metadados espalhados no repositório.
     """
     raw = path.read_text(encoding="utf-8", errors="replace")
+    return parse_sigma_text(raw, path.relative_to(repo_root).as_posix())
+
+
+def parse_sigma_text(raw: str, relative_path: str) -> DetectionRule | None:
+    """Mesma conversão, a partir do conteúdo em memória.
+
+    Separado do caminho de arquivo porque a descoberta (`src/discovery/`) lê a
+    regra do GitHub, não do disco. Uma segunda implementação do parser para o
+    caminho de rede divergiria da do disco na primeira correção — e a
+    divergência apareceria como metadado diferente para a mesma regra conforme
+    de onde ela veio.
+    """
     try:
         document: Any = yaml.safe_load(raw)
     except yaml.YAMLError:
@@ -58,7 +70,6 @@ def parse_sigma_rule(path: Path, repo_root: Path) -> DetectionRule | None:
     if not title or not native_id:
         return None
 
-    relative_path = path.relative_to(repo_root).as_posix()
     tags = as_str_list(document.get("tags"))
 
     # Tags do Sigma carregam ATT&CK no formato `attack.t1055.001` /

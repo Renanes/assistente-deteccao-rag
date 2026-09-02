@@ -58,14 +58,17 @@ def parse_yaral_rule(path: Path, repo_root: Path) -> DetectionRule | None:
     arquivos auxiliares (listas de referência, READMEs renomeados) na árvore.
     """
     raw = path.read_text(encoding="utf-8", errors="replace")
+    return parse_yaral_text(raw, path.relative_to(repo_root).as_posix())
 
+
+def parse_yaral_text(raw: str, relative_path: str) -> DetectionRule | None:
+    """Mesma conversão, a partir do conteúdo em memória (ver `sigma.parse_sigma_text`)."""
     header = _RULE_HEADER_RE.search(raw)
     if not header:
         return None
     rule_identifier = header.group(1)
 
     meta = _parse_meta_block(raw)
-    relative_path = path.relative_to(repo_root).as_posix()
 
     # `rule_name` é o título legível quando existe; senão, o identificador
     # snake_case vira título ("dns_lookup_exact" -> "Dns Lookup Exact").
