@@ -579,9 +579,9 @@ def add_trusted_source(payload: AddSourceRequest) -> SourcesResponse:
     try:
         info = discovery_github.probe_repository(payload.slug, runtime.settings.github_token)
     except discovery_github.RateLimitError as error:
-        raise HTTPException(status_code=429, detail=str(error)) from error
+        raise HTTPException(status_code=429, detail=redact(str(error))) from error
     except discovery_github.DiscoveryError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=redact(str(error))) from error
 
     try:
         source = discovery_sources.TrustedSource(
@@ -679,11 +679,11 @@ def discovery_search(payload: DiscoverRequest, http_request: Request) -> Discove
     except HTTPException:
         raise
     except discovery_github.RateLimitError as error:
-        raise HTTPException(status_code=429, detail=str(error)) from error
+        raise HTTPException(status_code=429, detail=redact(str(error))) from error
     except discovery_github.NotAllowedError as error:
-        raise HTTPException(status_code=403, detail=str(error)) from error
+        raise HTTPException(status_code=403, detail=redact(str(error))) from error
     except discovery_github.DiscoveryError as error:
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        raise HTTPException(status_code=502, detail=redact(str(error))) from error
     except Exception as error:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=redact(str(error))) from error
 

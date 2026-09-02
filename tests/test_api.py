@@ -22,6 +22,7 @@ from src.api.schemas import AskRequest
 from src.providers import CATALOG
 
 FRONTEND = Path(__file__).resolve().parents[1] / "src" / "frontend"
+API_MAIN = Path(__file__).resolve().parents[1] / "src" / "api" / "main.py"
 
 
 # --------------------------------------------------------------------------
@@ -375,6 +376,79 @@ def test_header_names_come_from_the_server_not_from_the_script(js: str) -> None:
 def test_settings_panel_ids_exist(html: str) -> None:
     for element_id in ("configPanel", "keyList", "configWarning", "configBadge"):
         assert f'id="{element_id}"' in html
+
+
+# --------------------------------------------------------------------------
+# Redação de segredo nas mensagens de erro
+#
+# Achado de uma varredura de segurança: três blocos em `/api/sources` (POST) e
+# `/api/discovery/search` devolviam `str(error)` cru para falhas vindas do
+# GitHub, enquanto todo o resto do arquivo passa por `redact()`. Nenhum dos
+# dois caminhos vazava segredo na prática — testado empiricamente que nem o
+# httpx nem o psycopg ecoam header/senha na mensagem da exceção — mas
+# `redact()` existe justamente para não depender disso continuar sendo
+# verdade a cada versão de dependência. Os dois testes abaixo travam a
+# correção sem precisar de rede nem de banco: `add_trusted_source` é chamada
+# como função Python direta, com `probe_repository` substituído por um dublê
+# que levanta o erro antes de qualquer coisa tocar o banco.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def main_source() -> str:
+    return API_MAIN.read_text(encoding="utf-8")
+
+
+def test_add_trusted_source_redacts_a_github_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+
+    from src.api import main
+    from src.discovery import github as discovery_github
+    from src.providers.config import Settings
+
+    segredo = "ghp_SEGREDODETESTE00000000000000000000"
+    main.runtime.settings = Settings(_env_file=None, github_token=segredo)  # type: ignore[call-arg]
+
+    def probe_falso(slug: str, token: str) -> dict[str, object]:
+        # A forma realista de um vazamento aqui: o token viaja como
+        # `Authorization: Bearer <token>`, então é assim que ele apareceria
+        # numa mensagem de erro que ecoasse a requisição por engano.
+        raise discovery_github.DiscoveryError(
+            f"o GitHub recusou a requisição (Authorization: Bearer {segredo})"
+        )
+
+    monkeypatch.setattr(main.discovery_github, "probe_repository", probe_falso)
+
+    payload = main.AddSourceRequest(slug="octocat/Hello-World", rule_format="sigma")
+    with pytest.raises(HTTPException) as excinfo:
+        main.add_trusted_source(payload)
+
+    assert segredo not in excinfo.value.detail
+    assert "[chave redigida]" in excinfo.value.detail
+
+
+def test_discovery_search_redacts_github_exceptions_too(main_source: str) -> None:
+    """Verificação estrutural do segundo ponto corrigido.
+
+    `discovery_search` toca o banco antes de poder falhar no GitHub
+    (`_connect()` monta o catálogo de origens primeiro), então reproduzir a
+    falha sem banco real exigiria simular uma conexão inteira. Mais barato e
+    igualmente decisivo: conferir que as três cláusulas que capturam erro do
+    GitHub nesta função passam por `redact()` — é exatamente a regressão que
+    aconteceria se alguém reescrevesse um `except` sem perceber o padrão.
+    """
+    inicio = main_source.index("def discovery_search(")
+    fim = main_source.index("\n\n\n", inicio)
+    corpo = main_source[inicio:fim]
+
+    for tipo in ("RateLimitError", "NotAllowedError", "DiscoveryError"):
+        trecho = corpo[corpo.index(f"discovery_github.{tipo}") :]
+        linha_detail = trecho[: trecho.index("\n", trecho.index("detail="))]
+        assert "redact(str(error))" in linha_detail, (
+            f"except discovery_github.{tipo} não redige mais a mensagem"
+        )
 
 
 # --------------------------------------------------------------------------
