@@ -2,8 +2,10 @@
 
 ## Status atual
 - Fase atual: **Fase 8 concluída — roadmap do `CLAUDE.md` completo.**
-  Em manutenção pós-roadmap (ver sessão de 2026-08-31).
-- Última atualização: 2026-08-31
+  Em manutenção pós-roadmap. A descoberta de novas regras
+  (`src/discovery/`, sessão 14) é um acréscimo fora do roadmap original,
+  pedido pelo usuário.
+- Última atualização: 2026-09-01
 
 ## Decisões de arquitetura
 - **Git dedicado para este projeto** — `agente_detection` estava aninhado
@@ -410,6 +412,73 @@
   continua respondendo só com booleano. `mascararChave` mostra os 6 primeiros
   caracteres e os 4 últimos; abaixo de 8 caracteres mostra só pontos, para não
   reconstruir por inteiro uma chave curta.
+
+- **A descoberta de regras é restrita por allowlist verificada em código, não
+  por instrução de prompt (sessão 14)** — a tool pedida ("pesquisar novos casos
+  de uso na internet") é, na prática, uma tool de leitura de repositório com
+  curadoria humana. A restrição a repositórios confiáveis é imposta em três
+  camadas que se sobrepõem de propósito: (1) a URL é **montada** a partir de uma
+  `TrustedSource` já validada, nunca recebida de fora; (2) a allowlist é
+  conferida a cada chamada, não no arranque, porque a lista é um menu na
+  interface e muda em tempo de execução; (3) o host é conferido no último
+  instante e o cliente HTTP não segue redirecionamento — um 302 é exatamente
+  como um host autorizado entregaria conteúdo de outro. Alternativa descartada:
+  filtrar o resultado depois de buscar. Um agente que busca e depois descarta é
+  um agente que já leu o que não devia.
+- **Buscar e decidir são endpoints separados, sem caminho que faça as duas
+  coisas (sessão 14)** — `/api/discovery/search` só produz propostas pendentes;
+  `/api/discovery/decide` é o único caminho que chunka, embeda e grava. Não
+  existir um endpoint "achar e indexar" é o desenho, não uma etapa que faltou
+  juntar: com ele, qualquer bug de caminho novo poderia escrever no acervo sem
+  decisão humana.
+- **A chave da proposta é o `rule_uid`, não um id próprio (sessão 14)** — a
+  mesma regra encontrada em duas buscas é uma decisão, não duas. Com id próprio,
+  recusar uma regra hoje não impediria ela de voltar amanhã como novidade, e
+  uma recusa que não gruda é pior que não ter recusa: parece ter funcionado.
+  Consequência assumida: uma regra recusada continua aparecendo nas buscas,
+  marcada como recusada, em vez de sumir.
+- **Sementes em código, cadastro no banco, semeadura só com a tabela vazia
+  (sessão 14)** — quem sobe o projeto já encontra sete repositórios cadastrados
+  (`SEED_SOURCES`), o que era o pedido explícito ("coloque alguns repositórios
+  confiáveis já cadastrados após o deploy"). Semear por entrada, e não "só se
+  vazia", faria uma origem removida de propósito ressuscitar no arranque
+  seguinte — a remoção viraria um botão que não funciona.
+- **O formato do repositório é declarado no cadastro, nunca adivinhado
+  (sessão 14)** — só entram origens cujas regras um dos três parsers da Fase 1
+  consegue ler. Isso exclui coleções boas em outro formato (o
+  `elastic/detection-rules` é TOML) e a exclusão é deliberada: aceitar o
+  cadastro e não devolver nada seria pior que recusar com o motivo na tela.
+- **`GITHUB_TOKEN` muda a estratégia, nunca a permissão (sessão 14)** — com
+  token, a busca de código do GitHub (que é autenticada) procura dentro do
+  conteúdo dos arquivos; sem token, resta a árvore do repositório, em cache de
+  6 horas, pontuada pelo nome do arquivo. Nenhum dos dois caminhos alarga a
+  lista de origens. O token é opcional de verdade porque quem clona o
+  repositório sem configurar nada precisa conseguir usar a ferramenta.
+- **Os parsers da Fase 1 ganharam entrada por texto, em vez de um parser novo
+  para o caminho de rede (sessão 14)** — `parse_sigma_text`, `parse_escu_text` e
+  `parse_yaral_text` passaram a existir, com as funções por arquivo virando
+  invólucros de uma linha. Uma segunda implementação divergiria da primeira na
+  primeira correção, e a divergência apareceria como metadado diferente para a
+  mesma regra conforme ela tivesse vindo do disco ou da rede.
+- **`source_url` é reescrito depois do parse (sessão 14)** — os parsers montam a
+  URL apontando para o repositório canônico do formato, o que estaria errado
+  para uma regra achada num repositório de terceiro. Citar uma regra do
+  `tsale/Sigma_rules` com link para o `SigmaHQ` seria uma citação que parece boa
+  e leva a lugar nenhum — exatamente o defeito que o resto do projeto existe
+  para não ter.
+
+- **A interface virou três vistas com menu no cabeçalho (sessão 14)** — pedido
+  de quem usa, depois de ver a descoberta entrar: a página empilhava tudo numa
+  coluna só e ficou longa demais. Consultar, Técnicas e Ampliar são tarefas
+  diferentes, e a última é de quem mantém o acervo, não de quem consulta. A
+  alternativa considerada era manter tudo numa página com as seções recolhidas
+  (`<details>`), que era o estado anterior: descartado porque recolher esconde
+  sem organizar — a página continuava sendo uma pilha, só que fechada.
+  Consequências assumidas e pagas: o mapa é redesenhado ao voltar para
+  Consultar (canvas oculto tem largura zero); o filtro armado em Técnicas
+  aparece como selo na aba Consultar e como aviso com caminho de volta; e a
+  vista vive no endereço (`#tecnicas`) via `replaceState`, para o "voltar" do
+  navegador não virar um desfazer de abas.
 
 ## Pendências / bloqueios
 - ~~`.env` inconsistente com as chaves disponíveis~~ — resolvido em 22/08:
@@ -1325,3 +1394,169 @@ uvicorn na porta 8000), mudança de frontend revisada, corrigida e commitada.
 Nenhum teste automatizado cobre `src/frontend/` (é JS/CSS puro, sem harness) —
 a verificação desta sessão foi manual e pela revisão de diff, como as
 anteriores sobre a mesma pasta.
+
+### 2026-09-01 — Sessão 14 (Claude Code)
+
+**Tool de descoberta de novos casos de uso, pedida pelo usuário.** O pedido:
+um prompt inicia a pesquisa, traz casos de uso com referência ao repositório de
+origem, o usuário aprova, e só então a regra entra no acervo; mais um menu de
+repositórios confiáveis, ao qual a busca fica restrita, com opção de acrescentar
+outros e alguns já cadastrados no deploy.
+
+**A leitura que orientou o desenho:** "pesquisar na internet" aqui não é busca
+na web aberta — é leitura de repositório de regra, e a palavra que carrega o
+requisito é *restrita*. Toda a arquitetura saiu daí; as decisões estão
+registradas acima.
+
+**O que foi entregue:**
+- `src/discovery/sources.py` — a allowlist: modelo `TrustedSource` validado,
+  sete sementes justificadas e a persistência em Postgres (`trusted_sources`).
+- `src/discovery/github.py` — o único módulo do projeto que fala com fora, com
+  a restrição imposta em três camadas e cache de árvore em disco.
+- `src/discovery/search.py` — prompt → plano de busca (LLM opcional) →
+  candidatos → parse → pontuação → propostas.
+- `src/discovery/proposals.py` — o estado das decisões (`discovery_proposals`)
+  e o único caminho que escreve em `rule_chunks`.
+- `src/discovery/run.py` — o mesmo fluxo por linha de comando.
+- Seis endpoints (`/api/sources` × 3, `/api/discovery/{search,proposals,decide}`).
+- Interface: seção "Ampliar o acervo" dentro do mapa do acervo, ao lado do
+  índice de técnicas, com o relatório da busca, as fichas de proposta e o menu
+  de origens aninhado.
+- `tests/test_discovery.py` com 53 testes novos. **304 no total, todos verdes.**
+
+**Sementes escolhidas (7).** As três fontes do corpus continuam cadastradas —
+é por elas que se acha regra nova publicada upstream desde a última ingestão —
+mais quatro coleções de comunidade em formato Sigma: `mdecrevoisier`,
+`joesecurity`, `tsale` e `Yamato-Security/hayabusa-rules`. Todas foram
+conferidas contra a API do GitHub antes de virar semente (existência, branch
+padrão e estrutura de diretórios). Duas escolhas de recorte valem registro: o
+Hayabusa entra restrito a `hayabusa/`, porque o diretório `sigma/` dele é um
+espelho do SigmaHQ que já está indexado; e o `The-DFIR-Report/Sigma-Rules`, que
+era a semente óbvia pelo nome, **ficou de fora** — o branch `main` dele tem só
+LICENSE e README, e cadastrá-lo daria uma origem que nunca devolve nada.
+
+**Três defeitos encontrados na primeira execução real, nenhum visível em teste
+sintético:**
+
+| Sintoma | Causa | Correção |
+|---|---|---|
+| 12 propostas irrelevantes, todas com nota 1.0 | a plataforma pontuava sozinha: todo arquivo com "windows" no nome virava candidato, e as 20 leituras por origem eram gastas em ordem alfabética | plataforma virou desempate; só termo ou técnica qualifica |
+| os termos do modelo não casavam com título nenhum | o modelo devolve frases ("lsass memory dump") e nenhuma aparece literal num título de regra | o termo passou a ser quebrado em tokens de casamento; a frase inteira virou bônus |
+| a busca caía no plano determinístico sem avisar | `max_tokens=120` na chamada de planejamento: o `claude-opus-5` gastava o orçamento raciocinando e devolvia texto vazio com `truncated=True` | 400 tokens, e o motivo está comentado no código |
+
+Um quarto, menor e instrutivo: `dump` casava `dumpbin` por prefixo — outro
+binário, para outra finalidade — e a regra errada subia junto da certa. O
+casamento passou a aceitar só flexão (`dump` → `dumping`), não prefixo livre.
+
+**Um defeito que só a verificação no navegador pegou:** colar a URL do GitHub
+no cadastro era recusado. A normalização que aceita URL estava no validador do
+modelo Pydantic, mas o endpoint confere o repositório no GitHub **antes** de
+construir o modelo — então a conveniência nunca chegava a rodar. Virou
+`normalize_slug`, usada nos dois pontos.
+
+**Uma regra existente que mudou o desenho da interface:** o teste
+`test_model_options_are_visible_without_interaction` (sessão 9) proíbe `<select>`
+no HTML, e o formato do repositório tinha nascido como um. A regra veio de um
+defeito relatado pelo usuário — menu suspenso esconde que existe escolha — e
+vale igual aqui, com um agravante: cadastrar com o formato errado não dá erro,
+dá uma origem que nunca devolve nada. Virou rádio, e as três opções visíveis
+também respondem à dúvida de quem chega ("quais formatos são aceitos?").
+O teste antigo foi mantido como estava; quem cedeu foi o código novo.
+
+**Verificado no navegador**, não só em teste: busca de ponta a ponta
+("exfiltração de dados por tunelamento de DNS" — 7 origens, 59 arquivos lidos,
+43 já no acervo, 19 s), aprovação de uma proposta com o medidor do acervo
+subindo de 5.665 para 5.666, recusa sem escrita, cadastro de origem por URL
+com o branch padrão descoberto sozinho, e remoção. Sem erro no console.
+Responsividade conferida em 390, 620 e 900 px pela técnica do iframe (o
+`resize_window` segue reportando sucesso sem alterar o `innerWidth` nesta
+máquina) — sem transbordo horizontal em nenhuma delas.
+
+**Duas regras foram de fato indexadas durante a verificação** — não é estado de
+teste esquecido, é o resultado real do fluxo: `sigma:b4019300-...` (LAPS
+Credential Dumping, do `tsale/Sigma_rules`) e `sigma:200113` (Access payload via
+nslookup txt record, do `joesecurity/sigma-rules`). O acervo passou de 5.664
+para 5.666 chunks. Ambas foram conferidas por retrieval depois de indexadas: a
+primeira é o resultado de topo para a própria pergunta, com o link apontando
+para o repositório onde ela realmente está.
+
+**Estado em que a sessão foi deixada:** `pytest` verde (304 testes), Postgres no
+ar, uvicorn na porta 8000 com o código novo, alterações **não commitadas**.
+
+**Acréscimo na mesma sessão: a interface virou três vistas.** Com a descoberta
+dentro, a página de coluna única ficou longa demais — o usuário pediu um menu
+em que cada opção abre uma funcionalidade, ao lado da Configuração.
+
+O menu ficou na segunda faixa do cabeçalho, com a Configuração à direita na
+mesma linha (fechada ela é um botão do tamanho do rótulo; aberta, toma a faixa
+inteira e desce para baixo das abas — um painel de chaves espremido ao lado do
+menu seria ilegível). As áreas: **Consultar** (pergunta, mapa, resposta),
+**Técnicas** (índice ATT&CK) e **Ampliar** (descoberta e origens confiáveis).
+
+**O mapa ficou em Consultar**, e não em Técnicas, porque ele é parte da
+resposta e não do catálogo. Isso trouxe o defeito previsível de canvas em vista
+oculta — largura zero, `desenharMapa` desiste — resolvido redesenhando na troca
+de vista. Conferido abrindo a página direto em `#ampliar` e voltando: o mapa
+aparece pintado.
+
+**O que a separação obrigou a pagar:** o filtro é armado em Técnicas e age na
+pergunta, que está noutra área. Sem sinal, o clique perderia consequência
+visível. Foram acrescentados um selo na aba Consultar com a contagem e, dentro
+de Técnicas, um aviso com botão "Ir para a pergunta". Verificado no navegador o
+ciclo inteiro: armar T1003 → selo "1 filtro" → ir para a pergunta → o chip está
+lá → limpar zera os dois lados.
+
+Os `<details>` do índice de técnicas e da descoberta deixaram de existir (uma
+vista não se recolhe), e com eles saíram as regras de CSS que só serviam ao
+`<summary>`. O teto de altura da lista de técnicas também caiu: ele existia
+para as 187 famílias não empurrarem a pergunta para fora da tela, e a pergunta
+agora está noutra área — manter a rolagem própria seria duas barras para o
+mesmo gesto.
+
+Verificado no navegador: troca das três vistas com `aria-selected` e `hidden`
+corretos, teclado (setas, Home e End percorrendo as abas com tabindex
+rotativo), deep link em `#ampliar`, painel de Configuração medindo 125 px
+fechado e 1.224 px aberto, e responsividade em 390, 620 e 900 px sem transbordo
+(as notas das abas somem abaixo de 620 px). Sem erro no console.
+
+`pytest` verde: **313 testes** (8 novos, sobre o fechamento das referências
+entre abas e vistas, a vista única visível no arranque, o redesenho do mapa e o
+endereço acompanhando a área).
+
+**Terceiro pedido da sessão: os repositórios viraram área própria no menu.**
+Estavam como um `<details>` recolhido dentro da vista de Ampliar — a decisão
+original era que a lista é "a configuração da busca, não um assunto próprio".
+Errado: a lista é *o limite do que a descoberta enxerga*, e quem avalia a
+ferramenta precisa conseguir vê-la e mudá-la sem antes disparar uma busca.
+Virou a quarta aba, com a lista, o cadastro e uma frase em latão dizendo o que
+a lista significa ("a busca entra apenas nestes repositórios; não há campo
+para apontá-la a um endereço qualquer").
+
+Como a busca depende da lista, a vista de Ampliar ganhou um caminho direto para
+ela — o mesmo padrão do "Ir para a pergunta" em Técnicas. É o preço recorrente
+de separar áreas: cada dependência entre elas precisa de um caminho visível.
+
+**Dois defeitos de layout que só apareceram com a área maior**, ambos invisíveis
+enquanto o formulário vivia espremido num painel:
+
+1. **O grid criava seis trilhas e usava metade da largura.** `auto-fit` só
+   colapsa trilha *vazia*, e o fieldset do formato ocupa a linha inteira
+   (`grid-column: 1 / -1`) — nenhuma ficava vazia. Passou a ser três colunas
+   explícitas, com teto de 920 px: campo de texto não melhora esticando.
+2. **Os rótulos dos rádios quebravam em três linhas** mesmo com 1.224 px de
+   espaço livre. Medido no navegador: o `.formato` tinha 159 px (a largura
+   certa para o texto de 124 px), e o `<span>` dentro dele recebia 64 px. É o
+   comportamento de item de flex recebendo largura de min-content quando o pai
+   é dimensionado por max-content; resolvido com `white-space: nowrap` no
+   rótulo, que é o que ele sempre deveria ter tido.
+
+**Verificado no navegador:** cadastro pela área nova colando a URL do GitHub
+(7 → 8 origens, com o resumo e a nota da aba acompanhando ao vivo), remoção
+(8 → 7), o atalho de Ampliar para Repositórios, e o menu de quatro abas
+rolando sozinho em 390 px sem transbordar a página. Sem erro no console.
+
+`pytest` verde: **315 testes**. Dois precisaram acompanhar a mudança e foram
+reescritos para travar invariantes em vez de números: o de "uma vista visível"
+passou a comparar a contagem de vistas com a de abas (acrescentar área não
+exige editar o teste), e o da restrição escrita na tela passou a exigir a frase
+nas duas áreas onde ela importa.

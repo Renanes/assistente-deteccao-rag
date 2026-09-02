@@ -190,6 +190,25 @@ python eval/run_eval.py --sweep            # métricas de retrieval e ablação
 python eval/run_eval.py --with-rag         # inclui ancoragem (gasta LLM)
 ```
 
+### Descoberta de regras novas
+
+Amplia o acervo procurando regras em repositórios confiáveis. Pela interface,
+na área **Ampliar** (menu do cabeçalho); pela linha de comando:
+
+```bash
+python -m src.discovery.run sources                  # os repositórios cadastrados
+python -m src.discovery.run sources --add owner/repo --format sigma
+python -m src.discovery.run search "abuso de LAPS no Active Directory"
+python -m src.discovery.run approve sigma:<id>       # indexa a regra proposta
+python -m src.discovery.run reject  sigma:<id>
+```
+
+A busca **não** indexa nada: ela devolve propostas com o repositório e o
+arquivo de origem, e só `approve` escreve no acervo. `GITHUB_TOKEN` no `.env`
+é opcional — sem ele a busca lê a árvore de arquivos de cada repositório
+(60 requisições por hora, por IP); com ele, também procura dentro do conteúdo.
+
+
 ### Testes
 
 ```bash
@@ -354,6 +373,102 @@ pela própria aplicação FastAPI, para que rodar a demo seja um comando. O
 renderizador de markdown tem ~60 linhas e escapa HTML antes de tudo, porque o
 texto vem de um LLM e não é confiável por construção.
 
+**Quatro áreas, não uma pilha.** A primeira versão empilhava tudo numa página
+só, e foi ficando errada à medida que a ferramenta cresceu: perguntar, navegar
+o que o acervo cobre, trazer regra nova e cuidar de onde ela pode vir são
+tarefas diferentes, feitas em momentos diferentes e — nas duas últimas — por
+quem mantém o acervo, não por quem consulta. Um menu no cabeçalho separa
+**Consultar**, **Técnicas**, **Ampliar** e **Repositórios**; a Configuração
+fica na mesma faixa, à direita.
+
+**Repositórios é área e não painel** porque a lista é o limite do que a
+descoberta enxerga. Enquanto ela era um `<details>` recolhido dentro da busca,
+ver esse limite exigia primeiro fazer uma busca — e é a primeira coisa que
+alguém avaliando a ferramenta precisa conseguir olhar.
+
+O que a separação obriga a pagar, e onde está pago:
+
+- **O mapa fica em Consultar**, não na área do acervo, porque ele é parte da
+  resposta: é o mapa que mostra a consulta estreitando o acervo inteiro até as
+  poucas regras que a sustentam. Como um canvas oculto tem largura zero, a troca de
+  vista redesenha o mapa — sem isso, abrir a página em `#ampliar` e voltar
+  deixava o elemento de assinatura em branco.
+- **O filtro é armado numa vista e age noutra.** Clicar numa técnica restringe
+  a próxima pergunta, que está em outra área — então a aba Consultar ganha um
+  selo com a contagem e a área de Técnicas mostra um aviso com o caminho de
+  volta. Sem isso o clique não teria consequência visível, que é o custo
+  clássico de separar telas. Pelo mesmo motivo, a área de Ampliar tem um
+  caminho direto para a de Repositórios: a busca depende da lista, e quem está
+  buscando não deveria ter que procurá-la no menu.
+- **O endereço acompanha a vista** (`#tecnicas`), com `replaceState` e não
+  atribuição de hash: a segunda forma empilharia uma entrada de histórico por
+  clique e transformaria o "voltar" do navegador num desfazer de abas.
+- **O menu é um `tablist` de verdade**: setas percorrem as abas, `tabindex`
+  rotativo, `aria-controls`/`aria-labelledby` fechando nos dois sentidos. Há
+  testes para o fechamento das referências — é o tipo de coisa que quebra em
+  silêncio quando alguém renomeia um `id`.
+
+### 8. A descoberta é restrita por uma lista, não por instrução
+
+A tool que amplia o acervo (`src/discovery/`) busca regras "na internet" — e a
+palavra que faz o trabalho aqui é *restrita*. Um agente que consulta a web e
+depois filtra o que não presta já leu o que não devia; a única forma de a
+restrição significar algo é ela ser um dado explícito, conferido em código,
+antes de a requisição sair.
+
+**A allowlist é imposta em três camadas que se sobrepõem de propósito:**
+
+1. **A URL é montada, nunca recebida.** Nenhuma função de rede aceita URL vinda
+   de fora. O que entra é uma origem já validada mais um caminho relativo, e a
+   URL sai de `source.raw_url(path)`. Uma URL para outro host não teria como
+   ser construída.
+2. **A origem é conferida a cada chamada**, não uma vez no arranque — a lista é
+   um menu na interface e muda em tempo de execução. Um cliente que tivesse
+   copiado a lista continuaria lendo uma origem recém-removida.
+3. **O host é conferido no último instante**, imediatamente antes do envio, e o
+   cliente HTTP não segue redirecionamento. Um 302 é exatamente o jeito de um
+   host autorizado entregar conteúdo de outro.
+
+Há testes para as três, e eles são a razão de o módulo de rede existir
+separado do resto: `httpx.MockTransport` intercepta no transporte, então o
+cliente real — com os cabeçalhos e o tratamento de erro reais — é o que está
+sendo exercitado.
+
+**A busca não decide.** `POST /api/discovery/search` produz propostas
+persistidas como pendentes; `POST /api/discovery/decide` é o único caminho que
+chunka, embeda e grava. Não existe endpoint que encontre e indexe no mesmo
+passo, e isso é o desenho — não uma etapa que faltou juntar. Cada proposta
+carrega o repositório, o caminho e o link do arquivo: aprovar sem ver a
+procedência seria confiar num texto que apareceu na tela, que é o oposto do que
+o resto do projeto faz.
+
+**O formato é declarado, não adivinhado.** Uma origem só pode ser cadastrada se
+as regras dela forem legíveis por um dos três parsers da Fase 1. Isso deixa de
+fora coleções excelentes em outro formato — `elastic/detection-rules` é TOML —
+e a exclusão é deliberada: aceitar o cadastro e não devolver nada seria pior
+que recusar com o motivo na tela.
+
+**Duas medições mudaram o código na primeira execução real**, e valem registro
+porque as duas eram invisíveis em teste sintético:
+
+| Sintoma | Causa | Correção |
+|---|---|---|
+| 12 propostas irrelevantes, todas nota 1.0 | plataforma pontuava sozinha, então todo arquivo com "windows" no nome virava candidato — a busca gastava suas leituras em ordem alfabética | plataforma virou desempate; só termo ou técnica qualifica |
+| termos do modelo não casavam com título nenhum | o modelo devolve frases ("lsass memory dump") e nenhuma aparece literal num título | o termo é quebrado em tokens de casamento; a frase inteira vira bônus |
+
+Uma terceira, menor: `dump` casava `dumpbin` por prefixo — outro binário, para
+outra finalidade — e a regra errada subia junto. O casamento passou a aceitar
+só flexão (`dump` → `dumping`), não prefixo livre.
+
+**Os parsers são os mesmos da Fase 1**, agora com uma entrada por texto além da
+entrada por arquivo (`parse_sigma_text`, `parse_escu_text`, `parse_yaral_text`).
+Uma segunda implementação para o caminho de rede divergiria da do disco na
+primeira correção, e a divergência apareceria como metadado diferente para a
+mesma regra conforme de onde ela veio. Depois do parse, `source_url` é
+reescrito para o repositório onde a regra foi de fato encontrada: citar uma
+regra do `tsale/Sigma_rules` com link para o `SigmaHQ` seria uma citação que
+parece boa e leva a lugar nenhum.
+
 ---
 
 ## Avaliação
@@ -400,10 +515,47 @@ verificando isso, além de testes de integridade do conjunto.
   pontos de quebra existem e há teste de que estão na folha de estilo, mas a
   verificação em tela pequena não foi feita.
 - **Sem autenticação, sem multi-tenant, sem upload de regras privadas** — fora
-  de escopo por decisão, não por esquecimento.
+  de escopo por decisão, não por esquecimento. Isso vale também para a
+  descoberta: qualquer um que alcance a aplicação pode cadastrar uma origem e
+  aprovar uma regra. Numa demo local isso é o comportamento desejado; exposta
+  na rede, a aplicação precisaria de autenticação antes de qualquer coisa.
+- **A relevância da descoberta é lexical, não semântica.** Ela pontua por
+  casamento de termo e técnica, não por embedding: embedar candidatos antes da
+  aprovação gastaria chamadas de API para material que talvez seja recusado.
+  O custo é perder a regra cujo título não usa nenhuma das palavras do pedido.
+- **A busca lê no máximo 20 arquivos por origem.** É o teto de custo que mantém
+  a busca interativa (~20 s em 7 origens). Uma regra que só apareceria na
+  leitura 21 não é encontrada.
 - **`k` do RRF e tamanho do pool não foram sintonizados.** Na configuração
   padrão existe uma única lista ranqueada, e o RRF preserva a ordem dela para
   qualquer `k`; a varredura só faz sentido com a perna de full-text ligada.
+
+---
+
+## Fontes e atribuição
+
+Este repositório **não redistribui as regras de detecção**. `data/raw/` é
+gitignored: as três fontes são clonadas por quem roda o projeto, direto dos
+repositórios de origem, e cada uma continua sob a licença de quem a mantém.
+
+| Fonte | Licença |
+|---|---|
+| [SigmaHQ/sigma](https://github.com/SigmaHQ/sigma) | regras sob [Detection Rule License 1.1](https://github.com/SigmaHQ/Detection-Rule-License); a especificação Sigma é domínio público |
+| [splunk/security_content](https://github.com/splunk/security_content) | Apache-2.0 |
+| [chronicle/detection-rules](https://github.com/chronicle/detection-rules) | Apache-2.0 |
+
+O que **é** redistribuído aqui é `data/attack/techniques.json` — 1.140 técnicas
+(ID, nome, status e sucessor) derivadas do bundle STIX do MITRE ATT&CK®, geradas
+por `src/ingestion/attack_names.py`. A licença do ATT&CK exige que qualquer
+cópia reproduza a designação de direito autoral do MITRE:
+
+> © 2026 The MITRE Corporation. This work is reproduced and distributed with
+> the permission of The MITRE Corporation.
+
+Termos completos em
+<https://attack.mitre.org/resources/legal-and-branding/terms-of-use/>, e a nota
+íntegra em [`data/attack/NOTICE.md`](./data/attack/NOTICE.md). O MITRE não
+endossa este projeto.
 
 ---
 
@@ -415,7 +567,7 @@ verificando isso, além de testes de integridade do conjunto.
   importado fora de `src/providers/`, e há um teste que garante isso
 - Interface sem framework e sem CDN de biblioteca: HTML, CSS e JS servidos pela
   própria aplicação
-- 173 testes; os que exigem banco e chave estão marcados como `integration` e
+- 315 testes; os que exigem banco e chave estão marcados como `integration` e
   são pulados quando o ambiente não está montado
 
 ## Estrutura
@@ -428,6 +580,7 @@ src/
 ├── embeddings/  schema do pgvector e indexação
 ├── retrieval/   filtro por metadado + busca vetorial + fusão RRF
 ├── rag/         prompt, geração e verificação de citação
+├── discovery/   busca de regras novas em repositórios confiáveis, com aprovação
 ├── api/         FastAPI
 └── frontend/    interface de demonstração
 eval/            conjunto de perguntas, harness e resultados
