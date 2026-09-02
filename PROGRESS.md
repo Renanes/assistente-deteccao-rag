@@ -1612,3 +1612,54 @@ remote `origin` configurado, `main` como branch padrao e sincronizado. O branch
 local `feat/indice-tecnicas-attack` ficou identico ao `main` e nao foi enviado.
 
 Repositorio: https://github.com/Renanes/assistente-deteccao-rag
+
+### 2026-09-02 — Sessao 16 (Claude Code)
+
+**Varredura de seguranca do repositorio publicado, a pedido do usuario.**
+Nao foi rodada a skill `security-review` (ela revisa diff pendente; a arvore
+estava limpa, nao havia diff) — foi uma auditoria manual e adversarial contra
+o repositorio publicado no GitHub.
+
+**Verificado, com evidencia, nao so por leitura:**
+- Historico inteiro (161 blobs) contra padroes de segredo amplos (chaves de
+  IA, AWS, chave privada, DSN com senha, JWT) — nada real, so o fixture de
+  teste conhecido e placeholders do `.env.example`.
+- Secret scanning nativo do GitHub: 0 alertas, push protection ativo.
+- SQL: todo valor de usuario passa por parametro nomeado do psycopg; os
+  unicos SQL com f-string interpolam `TABLE_NAME`, constante de modulo.
+- YAML: `yaml.safe_load` em 100% dos parsers, nunca `yaml.load` — importa
+  mais agora que a descoberta le YAML de repositorio de comunidade.
+- SSRF: fechado por construcao, nao so pela allowlist — rastreados os 4
+  pontos que montam URL no projeto, nenhum aceita string crua de fora.
+- XSS: as 25 atribuicoes de `innerHTML` do frontend, uma a uma — incluindo a
+  superficie mais nova e arriscada (ficha de proposta da descoberta, que
+  renderiza titulo/descricao de regra de terceiro e a descricao do proprio
+  repositorio GitHub). Todas passam por `escapeHtml()`.
+- Vazamento de segredo em mensagem de erro: testado **empiricamente**, nao so
+  lido — provocada uma falha real de conexao Postgres com senha real
+  embutida e uma falha real de rede httpx com token no cabecalho; nenhuma das
+  duas ecoa o segredo na excecao (`str(e)` limpo nos dois casos).
+
+**O achado real: `redact()` aplicado de forma inconsistente.** Tres blocos de
+excecao em `/api/sources` (POST) e `/api/discovery/search` devolviam
+`str(error)` cru para falha do GitHub, enquanto o resto do arquivo passa por
+`redact()`. Nao era vazamento ativo (confirmado acima) mas era uma protecao
+que so vale alguma coisa se aplicada em todo lugar. Corrigido nos 3 pontos.
+
+**Dois testes travam a correcao**, um deles provado contra falso negativo de
+proposito: revertida uma linha do fix, o teste `test_discovery_search_
+redacts_github_exceptions_too` falhou com a mensagem certa; reaplicada a
+correcao, voltou a passar. O outro (`test_add_trusted_source_redacts_a_
+github_failure`) chama o endpoint como funcao Python direta, com
+`probe_repository` substituido por um dublê — evita precisar de banco ou
+rede para testar um caminho de erro de rede.
+
+**Habilitado no GitHub**, via API: `dependabot_security_updates` (estava
+desligado; alertas de vulnerabilidade ja estavam ligados por padrao).
+`secret_scanning_non_provider_patterns` continua desligado — recurso do
+GitHub Advanced Security, nao disponivel para conta pessoal em repo publico.
+
+**Estado em que a sessao foi deixada:** `pytest` verde (317 testes, 2 novos),
+commit `178a0d1` publicado em `main`. Nenhuma vulnerabilidade confirmada;
+nenhum segredo vazado, em nenhum momento do historico dos 16 commits
+publicados.
